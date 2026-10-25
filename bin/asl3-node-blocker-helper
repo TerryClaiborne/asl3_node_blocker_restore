@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="/var/www/html/asl3_blocker"
+CONFIG_FILE="$APP_DIR/config.ini"
+ASTERISK_BIN="/usr/sbin/asterisk"
+STATUS_READER="$APP_DIR/bin/asl3-node-blocker-status.php"
+
+die() {
+  printf 'ERROR\t%s\n' "$1"
+  exit 1
+}
+
+[[ $EUID -eq 0 ]] || die "Helper must run as root."
+[[ -r "$CONFIG_FILE" ]] || die "Configuration file is missing."
+[[ -x "$ASTERISK_BIN" ]] || die "Asterisk CLI was not found."
+
+MYNODE="$(sed -n 's/^[[:space:]]*MYNODE="\([0-9][0-9]*\)"[[:space:]]*$/\1/p' "$CONFIG_FILE" | head -n1)"
+[[ "$MYNODE" =~ ^[0-9]{4,7}$ ]] || die "Configured local node is invalid."
+
+IFS= read -r ACTION || die "Missing action."
+IFS= read -r TARGET || TARGET=""
+IFS= read -r REASON || REASON=""
+
+valid_node() {
+  [[ "$1" =~ ^[0-9]{4,7}$ ]]
+}
+
+valid_live_client() {
+  [[ "$1" =~ ^[A-Za-z0-9_.:-]{1,64}$ ]]
+}
+
+live_client_exists() {
+  local remote="$1"
+  local output line candidate
+
+  output="$(run_ast "rpt lstats $MYNODE" 2>/dev/null || true)"
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    candidate="${line%%[[:space:]]*}"
+    [[ -n "$candidate" ]] || continue
+    if [[ "$candidate" == "$remote" ]]; then
+      return 0
+    fi
+  done <<<"$output"
+
+  output="$(run_ast "rpt nodes $MYNODE" 2>/dev/null || true)"
+  while IFS= read -r candidate; do
+    candidate="${candidate:1}"
+    [[ -n "$candidate" ]] || continue
+    if [[ "$candidate" == "$remote" ]]; then
+      return 0
+    fi
+  done < <(printf '%s\n' "$output" | grep -oE '[TRLC][A-Za-z0-9_.:-]{1,64}' || true)
+
+  return 1
+}
+
+clean_reason() {
+  local v="$1"
+  v="${v//$'\r'/ }"
+  v="${v//$'\n'/ }"
+  v="$(printf '%s' "$v" | tr -cd 'A-Za-z0-9 .,_:;()/#@+-')"
+  v="${v:0:80}"
+  [[ -n "$v" ]] || v="Blocked with ASL3 Node Blocker & Restore"
+  printf '%s' "$v"
+}
+
+run_ast() {
+  "$ASTERISK_BIN" -rx "$1"
+}
+
+case "$ACTION" in
+  info)
+    printf 'NODE\t%s\n' "$MYNODE"
+    ;;
+  status)
+    [[ -r "$STATUS_READER" ]] || die "Live status reader is missing."
+    exec /usr/bin/php "$STATUS_READER" "$MYNODE"
+    ;;
+  connections)
+    run_ast "rpt nodes $MYNODE"
+    ;;
+  list)
+    run_ast "database show denylist/$MYNODE"
+    ;;
+  allowlist)
+    run_ast "database show allowlist/$MYNODE"
+    ;;
+  disconnect)
+    [[ -n "$TARGET" ]] || die "Missing disconnect target."
+
+    if valid_node "$TARGET"; then
+      [[ "$TARGET" != "$MYNODE" ]] || die "You cannot disconnect your own node."
+      run_ast "rpt fun $MYNODE *1$TARGET" >/dev/null
+      printf 'OK\tNode %s was disconnected. It was not blocked.\n' "$TARGET"
+    else
+      valid_live_client "$TARGET" || die "Live client name is invalid."
+      live_client_exists "$TARGET" || die "Live Web Transceiver / IAX client was not found."
+
+      # Proven named/Web Transceiver app_rpt row-disconnect path.
+      run_ast "rpt cmd $MYNODE ilink 11 $TARGET" >/dev/null
+      printf 'OK\tClient %s was disconnected. It was not blocked.\n' "$TARGET"
+    fi
+    ;;
+  block)
+    valid_node "$TARGET" || die "Target node must be 4 to 7 digits."
+    [[ "$TARGET" != "$MYNODE" ]] || die "You cannot block your own node."
+    REASON="$(clean_reason "$REASON")"
+
+    # Live-tested on ASL3 between nodes 67040 and 67565:
+    # *1 + node disconnects the active link.
+    run_ast "rpt fun $MYNODE *1$TARGET" >/dev/null
+
+    # Then deny future inbound connections from that node.
+    run_ast "database put denylist/$MYNODE $TARGET \"$REASON\"" >/dev/null
+
+    if run_ast "database show denylist/$MYNODE" | \
+         grep -Eq "^[[:space:]]*/denylist/$MYNODE/$TARGET[[:space:]]*:"; then
+      printf 'OK\tNode %s was disconnected and blocked.\n' "$TARGET"
+    else
+      die "The denylist entry could not be verified."
+    fi
+    ;;
+  restore)
+    valid_node "$TARGET" || die "Target node must be 4 to 7 digits."
+    [[ "$TARGET" != "$MYNODE" ]] || die "You cannot restore your own node."
+
+    run_ast "database del denylist/$MYNODE $TARGET" >/dev/null || true
+
+    if run_ast "database show denylist/$MYNODE" | \
+         grep -Eq "^[[:space:]]*/denylist/$MYNODE/$TARGET[[:space:]]*:"; then
+      die "The denylist entry is still present."
+    fi
+
+    printf 'OK\tNode %s was restored and may connect again.\n' "$TARGET"
+    ;;
+  *)
+    die "Unknown action."
+    ;;
+esac

@@ -1,0 +1,7 @@
+# ASL3 Node Blocker and Restore local configuration
+MYNODE=""
+
+# Optional application login. Disabled by default.
+ASL3_BLOCKER_AUTH_ENABLED=0
+ASL3_BLOCKER_ADMIN_USER="admin"
+ASL3_BLOCKER_ADMIN_PASSWORD_HASH=""
