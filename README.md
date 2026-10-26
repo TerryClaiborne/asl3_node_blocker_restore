@@ -136,5 +136,5 @@ sudo /var/www/html/asl3_blocker/setup_asl3_node_blocker_restore.sh --uninstall
 Current version:
 
 ```text
-1.0.0
+1.0.1
 ```
