@@ -114,7 +114,22 @@ function ami_action($fp, array $fields, string $actionId): array
     return ami_read_response($fp, $actionId);
 }
 
-function parse_links(array $xstatLines, array $sawStatLines): array
+function parse_echolink_nodes(array $lines): array
+{
+    $nodes = [];
+
+    foreach ($lines as $line) {
+        $line = trim((string)$line);
+
+        if (preg_match('/^Output:\s+(\d{1,6})\s+/', $line, $match) === 1) {
+            $nodes[(string)$match[1]] = true;
+        }
+    }
+
+    return array_keys($nodes);
+}
+
+function parse_links(array $xstatLines, array $sawStatLines, array $echoNodeLines): array
 {
     $connections = [];
     $modes = [];
@@ -131,7 +146,9 @@ function parse_links(array $xstatLines, array $sawStatLines): array
                     'node' => $node,
                     'direction' => isset($parts[5]) ? (string)($parts[3] ?? '') : (string)($parts[2] ?? ''),
                     'elapsed' => isset($parts[5]) ? (string)($parts[4] ?? '') : (string)($parts[3] ?? ''),
-                    'connection_type' => ctype_digit($node) ? 'node' : 'client',
+                    'connection_type' => preg_match('/^3\\d{6}$/', $node) === 1
+                        ? 'echolink'
+                        : (ctype_digit($node) ? 'node' : 'client'),
                 ];
             }
         }
@@ -183,24 +200,80 @@ function parse_links(array $xstatLines, array $sawStatLines): array
         ];
     }
 
+    /*
+     * Keep EchoLink control identity separate from display identity.
+     *
+     * app_rpt may expose a temporary 3xxxxxx control target, while
+     * chan_echolink's live node table contains the real EchoLink node ID.
+     *
+     * First match normal mapped targets directly. If exactly one unmatched
+     * EchoLink control row and one unmatched live EchoLink node remain, that
+     * pair is unambiguous and safe to associate. Otherwise we do not guess.
+     */
+    $officialEchoNodes = parse_echolink_nodes($echoNodeLines);
+    $remainingOfficial = array_fill_keys($officialEchoNodes, true);
+    $echoDisplayNodes = [];
+    $unmatchedControls = [];
+
+    foreach (array_keys($connections) as $controlNode) {
+        $controlNode = (string)$controlNode;
+
+        if (preg_match('/^3\d{6}$/', $controlNode) !== 1) {
+            continue;
+        }
+
+        $candidate = ltrim(substr($controlNode, 1), '0');
+        if ($candidate === '') {
+            $candidate = '0';
+        }
+
+        if (isset($remainingOfficial[$candidate])) {
+            $echoDisplayNodes[$controlNode] = $candidate;
+            unset($remainingOfficial[$candidate]);
+        } else {
+            $unmatchedControls[] = $controlNode;
+        }
+    }
+
+    if (count($unmatchedControls) === 1 && count($remainingOfficial) === 1) {
+        $echoDisplayNodes[$unmatchedControls[0]] =
+            (string)array_key_first($remainingOfficial);
+    }
+
     $links = [];
     foreach ($connections as $node => $connection) {
         $nodeText = (string)$node;
         $modeLetter = (string)($modes[$nodeText] ?? '');
         $mode = ($modeLetter === 'T') ? 'transceive' : 'local_monitor';
 
-        $blockable = ctype_digit($nodeText)
+        $isEchoLink = preg_match('/^3\\d{6}$/', $nodeText) === 1;
+
+        $isNumericNode = ctype_digit($nodeText)
             && strlen($nodeText) >= 4
             && strlen($nodeText) <= 7;
 
-        $disconnectable = $blockable
-            || preg_match('/^[A-Za-z0-9_.:-]{1,64}$/', $nodeText) === 1;
+        // EchoLink is intentionally Disconnect-only, just like Web Transceiver.
+        $blockable = $isNumericNode && !$isEchoLink;
 
-        $modeLabel = $blockable
-            ? ($mode === 'transceive' ? 'Node Transceiver' : 'Node Local Monitor')
-            : 'Web Transceiver';
+        // Never offer an EchoLink disconnect unless its official live ID
+        // was matched safely. For every other connection, retain normal rules.
+        $disconnectable = $isEchoLink
+            ? isset($echoDisplayNodes[$nodeText])
+            : ($isNumericNode
+                || preg_match('/^[A-Za-z0-9_.:-]{1,64}$/', $nodeText) === 1);
+
+        $modeLabel = $isEchoLink
+            ? 'EchoLink'
+            : ($blockable
+                ? ($mode === 'transceive' ? 'Node Transceiver' : 'Node Local Monitor')
+                : 'Web Transceiver');
+
+        $displayNode = $isEchoLink
+            ? (string)($echoDisplayNodes[$nodeText] ?? 'EchoLink ID unavailable')
+            : $nodeText;
 
         $links[] = $connection + [
+            'display_node' => $displayNode,
             'link_mode' => $mode,
             'mode_label' => $modeLabel,
             'keyed' => !empty($keyed[$node]['active']),
@@ -259,12 +332,17 @@ try {
         'NODE' => $node,
     ], 'blocker_sawstat_' . bin2hex(random_bytes(4)));
 
+    $echoNodes = ami_action($fp, [
+        'ACTION' => 'Command',
+        'COMMAND' => 'echolink show nodes',
+    ], 'blocker_echolink_' . bin2hex(random_bytes(4)));
+
     @fwrite($fp, "ACTION: LOGOFF\r\n\r\n");
 
     echo json_encode([
         'ok' => true,
         'node' => $node,
-        'connections' => parse_links($xstat, $sawstat),
+        'connections' => parse_links($xstat, $sawstat, $echoNodes),
     ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
 } finally {
     @fclose($fp);

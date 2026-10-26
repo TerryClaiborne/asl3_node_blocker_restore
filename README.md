@@ -10,6 +10,7 @@ It provides a quick way to see current connections, identify keyed nodes, discon
 - Keyed Now display
 - Disconnect a connected node without blocking it
 - Disconnect Web Transceiver connections
+- Detect EchoLink connections with Disconnect-only control
 - Disconnect & Block numeric AllStar nodes
 - Restore blocked nodes
 - Manual block by node number

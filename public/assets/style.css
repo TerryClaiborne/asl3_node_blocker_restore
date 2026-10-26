@@ -525,3 +525,27 @@ footer {
 @media (max-width: 520px) {
   .shell-narrow { width: calc(100% - 12px); padding-top: 12px; }
 }
+
+/* Repository-linked brand */
+.brand {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Connected-row visual separation */
+.connected-panel .node-row + .node-row {
+  box-shadow: 0 -2px 0
+    color-mix(in srgb, var(--primary) 24%, var(--line));
+}
+
+@media (max-width: 520px) {
+  .connected-panel .node-row {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .connected-panel .node-row + .node-row {
+    box-shadow: 0 -3px 0
+      color-mix(in srgb, var(--primary) 38%, var(--line));
+  }
+}

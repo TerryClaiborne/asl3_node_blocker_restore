@@ -10,6 +10,7 @@ $node = blocker_node();
 $authEnabled = auth_enabled($cfg);
 auth_require_if_enabled($cfg);
 $version = trim((string)@file_get_contents(dirname(__DIR__) . '/VERSION'));
+$repoUrl = 'https://github.com/TerryClaiborne/asl3_node_blocker_restore';
 $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_blocker_restore/main/VERSION';
 ?>
 <!doctype html>
@@ -27,10 +28,14 @@ $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_
       data-node="<?= h($node) ?>">
 
   <header class="topbar">
-    <div class="brand" id="branding-title"
-         data-local-version="<?= h($version) ?>"
-         data-version-url="<?= h($remoteVersionUrl) ?>"
-         title="ASL3 Node Blocker &amp; Restore v<?= h($version) ?>">
+    <a class="brand" id="branding-title"
+       href="<?= h($repoUrl) ?>"
+       target="_blank"
+       rel="noopener noreferrer"
+       aria-label="Open the ASL3 Node Blocker &amp; Restore repository"
+       data-local-version="<?= h($version) ?>"
+       data-version-url="<?= h($remoteVersionUrl) ?>"
+       title="ASL3 Node Blocker &amp; Restore v<?= h($version) ?>">
       <div class="brand-mark" aria-hidden="true">
         <svg class="brand-star-svg" viewBox="0 0 72 72" aria-hidden="true" focusable="false">
           <path class="star-outline" d="M36 4 44 25 67 26 49 40 55 64 36 51 17 64 23 40 5 26 28 25Z"/>
@@ -43,7 +48,7 @@ $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_
         <h1>ASL3 Node Blocker &amp; Restore</h1>
         <p class="subtitle">See who is keyed, disconnect and block them, then restore access later.</p>
       </div>
-    </div>
+    </a>
     <div class="top-actions">
       <div class="live-badge" title="Updates automatically">
         <span class="live-dot" aria-hidden="true"></span>

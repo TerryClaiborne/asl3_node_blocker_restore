@@ -80,6 +80,7 @@
 
   const connectionActions = (link) => {
     const node = String(link?.node || '');
+    const displayNode = String(link?.display_node || node);
     const canDisconnect = Boolean(link?.disconnectable)
       && /^[A-Za-z0-9_.:-]{1,64}$/.test(node);
     const canBlock = Boolean(link?.blockable ?? link?.actionable)
@@ -91,7 +92,7 @@
 
     const buttons = [];
     if (canDisconnect) {
-      buttons.push(`<button class="button ghost small disconnect-node" type="button" data-node="${escapeHtml(node)}">Disconnect</button>`);
+      buttons.push(`<button class="button ghost small disconnect-node" type="button" data-node="${escapeHtml(node)}" data-display="${escapeHtml(displayNode)}">Disconnect</button>`);
     }
     if (canBlock) {
       buttons.push(`<button class="button danger small block-node" type="button" data-node="${escapeHtml(node)}">Disconnect &amp; Block</button>`);
@@ -104,7 +105,7 @@
     <div class="node-row is-keyed">
       <div class="node-copy">
         <div class="node-title-line">
-          <strong class="node-number">${escapeHtml(link.node)}</strong>
+          <strong class="node-number">${escapeHtml(link.display_node || link.node)}</strong>
           <span class="keyed-badge">KEYED</span>
         </div>
         <span class="node-meta">${escapeHtml(formatSeconds(link.keyed_seconds))} · ${escapeHtml(link.mode_label || 'Connected')}</span>
@@ -116,7 +117,7 @@
     <div class="node-row ${link.keyed ? 'is-keyed' : ''}">
       <div class="node-copy">
         <div class="node-title-line">
-          <strong class="node-number">${escapeHtml(link.node)}</strong>
+          <strong class="node-number">${escapeHtml(link.display_node || link.node)}</strong>
           ${link.keyed ? '<span class="keyed-badge">KEYED</span>' : ''}
         </div>
         <span class="node-meta">${escapeHtml(link.keyed ? formatSeconds(link.keyed_seconds) : (link.mode_label || 'Connected'))}</span>
@@ -197,9 +198,10 @@
     }
   };
 
-  const openConfirm = (action, target, reason = '') => {
-    pending = { action, target, reason };
+  const openConfirm = (action, target, reason = '', displayTarget = '') => {
+    pending = { action, target, reason, displayTarget };
     confirmReason.value = reason;
+    const visibleTarget = displayTarget || target;
 
     if (action === 'block') {
       confirmMessage.textContent = `Disconnect node ${target} now and block it from reconnecting?`;
@@ -207,7 +209,7 @@
       confirmGo.textContent = 'Disconnect & Block';
       confirmGo.className = 'button danger';
     } else if (action === 'disconnect') {
-      confirmMessage.textContent = `Disconnect ${target} now without blocking it?`;
+      confirmMessage.textContent = `Disconnect ${visibleTarget} now without blocking it?`;
       reasonWrap.classList.add('hidden');
       confirmGo.textContent = 'Disconnect Only';
       confirmGo.className = 'button ghost';
@@ -227,7 +229,7 @@
     pending = null;
   };
 
-  const doAction = async (action, target, reason = '') => {
+  const doAction = async (action, target, reason = '', displayTarget = '') => {
     busy = true;
     liveText.textContent = 'Updating';
 
@@ -247,7 +249,16 @@
       }
 
       const data = await response.json();
-      showNotice(data.ok ? 'success' : 'error', data.message || 'Action failed.');
+
+      let message = data.message || 'Action failed.';
+      if (data.ok
+          && action === 'disconnect'
+          && /^\d{1,6}$/.test(displayTarget)
+          && displayTarget !== target) {
+        message = `EchoLink ${displayTarget} was disconnected. It was not blocked.`;
+      }
+
+      showNotice(data.ok ? 'success' : 'error', message);
     } catch (_) {
       showNotice('error', 'The request could not be completed.');
     } finally {
@@ -259,7 +270,12 @@
   const listClick = (event) => {
     const disconnect = event.target.closest('.disconnect-node');
     if (disconnect) {
-      openConfirm('disconnect', disconnect.dataset.node || '');
+      openConfirm(
+        'disconnect',
+        disconnect.dataset.node || '',
+        '',
+        disconnect.dataset.display || ''
+      );
       return;
     }
 
@@ -311,9 +327,10 @@
     const action = pending.action;
     const target = pending.target;
     const reason = action === 'block' ? confirmReason.value.trim() : '';
+    const displayTarget = pending.displayTarget || '';
 
     closeConfirm();
-    await doAction(action, target, reason);
+    await doAction(action, target, reason, displayTarget);
     manualForm?.reset();
   });
 
