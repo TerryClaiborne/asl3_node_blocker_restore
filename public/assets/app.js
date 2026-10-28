@@ -5,17 +5,18 @@
 
   const csrf = app.dataset.csrf || '';
   const localNode = app.dataset.node || '';
-
   const $ = (id) => document.getElementById(id);
-  const keyedList = $('keyedList');
-  const connectedList = $('connectedList');
+
+  const livePanel = $('livePanel');
+  const blockedPanel = $('blockedPanel');
+  const liveList = $('liveList');
   const blockedList = $('blockedList');
+  const allCount = $('allCount');
   const keyedCount = $('keyedCount');
   const connectedCount = $('connectedCount');
   const blockedCount = $('blockedCount');
-  const keyedPill = $('keyedPill');
-  const connectedPill = $('connectedPill');
-  const blockedPill = $('blockedPill');
+  const liveHeading = $('liveHeading');
+  const lastUpdate = $('lastUpdate');
   const noticeArea = $('noticeArea');
   const allowlistWarning = $('allowlistWarning');
   const allowlistText = $('allowlistText');
@@ -29,10 +30,13 @@
   const confirmCancel = $('confirmCancel');
   const confirmGo = $('confirmGo');
   const manualForm = $('manualBlockForm');
+  const filterButtons = [...document.querySelectorAll('.filter-button')];
 
   let busy = false;
   let pending = null;
   let pollTimer = null;
+  let currentFilter = 'all';
+  let snapshot = { connections: [], keyed: [], blocked: [] };
 
   const escapeHtml = (value) => String(value)
     .replaceAll('&', '&amp;')
@@ -49,15 +53,35 @@
     const m = Math.floor((s % 3600) / 60);
     const r = s % 60;
     return h > 0
-      ? `Keyed ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`
-      : `Keyed ${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;
+      ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
+      : `${m}:${String(r).padStart(2, '0')}`;
+  };
+
+  const modeShort = (link) => {
+    const label = String(link?.mode_label || '').toLowerCase();
+    const type = String(link?.connection_type || '').toLowerCase();
+    if (type === 'echolink' || label.includes('echolink')) return 'EchoLink';
+    if (label.includes('web transceiver') || type === 'client') return 'WT';
+    return 'NODE';
+  };
+
+  const modeClass = (mode) => mode === 'WT'
+    ? 'mode-wt'
+    : mode === 'EchoLink'
+      ? 'mode-echolink'
+      : 'mode-node';
+
+  const activityText = (link) => {
+    if (link?.keyed) return `Keyed ${formatSeconds(link.keyed_seconds)}`;
+    const elapsed = String(link?.elapsed || '').trim();
+    return elapsed || 'Connected';
   };
 
   const applyTheme = (theme) => {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem('asl3-blocker-theme', theme); } catch (_) {}
     if (themeButton) {
-      themeButton.textContent = theme === 'dark' ? '☀' : theme === 'light' ? '☾' : '◐';
+      themeButton.dataset.theme = theme;
       themeButton.title = `Theme: ${theme}`;
     }
   };
@@ -91,74 +115,136 @@
     }
 
     const buttons = [];
+    if (canBlock) {
+      buttons.push(`<button class="button danger small block-node" type="button" data-node="${escapeHtml(node)}">Block</button>`);
+    }
     if (canDisconnect) {
       buttons.push(`<button class="button ghost small disconnect-node" type="button" data-node="${escapeHtml(node)}" data-display="${escapeHtml(displayNode)}">Disconnect</button>`);
     }
-    if (canBlock) {
-      buttons.push(`<button class="button danger small block-node" type="button" data-node="${escapeHtml(node)}">Disconnect &amp; Block</button>`);
-    }
 
-    return `<div class="row-actions">${buttons.join('')}</div>`;
+    return `<div class="row-actions ${buttons.length === 1 ? 'single-action' : ''}">${buttons.join('')}</div>`;
   };
 
-  const keyedRow = (link) => `
-    <div class="node-row is-keyed">
-      <div class="node-copy">
-        <div class="node-title-line">
-          <strong class="node-number">${escapeHtml(link.display_node || link.node)}</strong>
-          <span class="keyed-badge">KEYED</span>
-        </div>
-        <span class="node-meta">${escapeHtml(formatSeconds(link.keyed_seconds))} · ${escapeHtml(link.mode_label || 'Connected')}</span>
-      </div>
-      ${connectionActions(link)}
-    </div>`;
+  const linkRow = (link) => {
+    const displayNode = String(link?.display_node || link?.node || 'Unknown');
+    const mode = modeShort(link);
+    const status = link?.keyed ? 'KEYED' : 'CONNECTED';
+    const statusClass = link?.keyed ? 'status-keyed' : 'status-connected';
 
-  const connectedRow = (link) => `
-    <div class="node-row ${link.keyed ? 'is-keyed' : ''}">
-      <div class="node-copy">
-        <div class="node-title-line">
-          <strong class="node-number">${escapeHtml(link.display_node || link.node)}</strong>
-          ${link.keyed ? '<span class="keyed-badge">KEYED</span>' : ''}
+    const echoCallsign = mode === 'EchoLink'
+      ? String(link?.callsign || '').trim()
+      : '';
+
+    const echoNode = mode === 'EchoLink'
+      ? String(link?.echolink_node || link?.display_node || '').trim()
+      : '';
+
+    const nodeCallsign = mode === 'NODE'
+      ? String(link?.callsign || '').trim()
+      : '';
+
+    const primaryIdentity = mode === 'EchoLink' && echoCallsign
+      ? echoCallsign
+      : displayNode;
+
+    const primaryIdentityHtml = mode === 'NODE' && nodeCallsign
+      ? `${escapeHtml(displayNode)} <span class="node-call-dot" aria-hidden="true">•</span> ${escapeHtml(nodeCallsign)}`
+      : escapeHtml(primaryIdentity);
+
+    const detail = mode === 'EchoLink'
+      ? (echoNode ? `EchoLink ${echoNode}` : 'EchoLink connection')
+      : mode === 'WT'
+        ? 'Web Transceiver'
+        : String(link?.mode_label || 'AllStar node');
+
+    return `
+      <div class="link-row ${link?.keyed ? 'is-keyed' : ''}">
+        <div class="status-cell ${statusClass}">
+          <span class="status-dot" aria-hidden="true"></span>
+          <strong>${status}</strong>
         </div>
-        <span class="node-meta">${escapeHtml(link.keyed ? formatSeconds(link.keyed_seconds) : (link.mode_label || 'Connected'))}</span>
-      </div>
-      ${connectionActions(link)}
-    </div>`;
+        <div class="identity-cell">
+          <strong class="node-number">${primaryIdentityHtml}</strong>
+          <span class="node-meta">${escapeHtml(detail)}</span>
+        </div>
+        <div class="mode-cell">
+          <span class="mode-badge ${modeClass(mode)}">${escapeHtml(mode)}</span>
+        </div>
+        <div class="activity-cell">${escapeHtml(activityText(link))}</div>
+        <div class="actions-cell">${connectionActions(link)}</div>
+      </div>`;
+  };
 
   const blockedRow = (item) => `
-    <div class="node-row">
-      <div class="node-copy">
+    <div class="blocked-row">
+      <div class="identity-cell">
         <strong class="node-number">${escapeHtml(item.node)}</strong>
         <span class="node-meta">${escapeHtml(item.reason || 'Blocked')}</span>
       </div>
-      <button class="button success small restore-node" type="button" data-node="${escapeHtml(item.node)}">
-        Restore
-      </button>
+      <span class="blocked-status">BLOCKED</span>
+      <button class="button success small restore-node" type="button" data-node="${escapeHtml(item.node)}">Restore</button>
     </div>`;
+
+  const sortConnections = (connections) => [...connections].sort((a, b) => {
+    const keyedDelta = Number(Boolean(b?.keyed)) - Number(Boolean(a?.keyed));
+    if (keyedDelta !== 0) return keyedDelta;
+    return String(a?.display_node || a?.node || '').localeCompare(String(b?.display_node || b?.node || ''), undefined, { numeric: true });
+  });
+
+  const setFilter = (filter) => {
+    currentFilter = ['all', 'keyed', 'connected', 'blocked'].includes(filter) ? filter : 'all';
+    filterButtons.forEach((button) => {
+      const active = button.dataset.filter === currentFilter;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    renderLists();
+  };
+
+  const renderLists = () => {
+    const connections = sortConnections(Array.isArray(snapshot.connections) ? snapshot.connections : []);
+    const blocked = Array.isArray(snapshot.blocked) ? snapshot.blocked : [];
+
+    if (currentFilter === 'blocked') {
+      livePanel.classList.add('hidden');
+      blockedPanel.classList.remove('hidden');
+      blockedList.innerHTML = blocked.length
+        ? blocked.map(blockedRow).join('')
+        : '<div class="empty-state good-state">No nodes are blocked.</div>';
+      return;
+    }
+
+    livePanel.classList.remove('hidden');
+    blockedPanel.classList.add('hidden');
+
+    let visible = connections;
+    if (currentFilter === 'keyed') visible = connections.filter((link) => Boolean(link?.keyed));
+    if (currentFilter === 'connected') visible = connections.filter((link) => !link?.keyed);
+
+    liveHeading.textContent = currentFilter === 'keyed'
+      ? 'Keyed Now'
+      : currentFilter === 'connected'
+        ? 'Connected / Not Keyed'
+        : 'All Connections';
+
+    liveList.innerHTML = visible.length
+      ? visible.map(linkRow).join('')
+      : `<div class="empty-state good-state">${currentFilter === 'keyed' ? 'No connected node is keyed.' : 'No matching live connections.'}</div>`;
+  };
 
   const render = (data) => {
     const connections = Array.isArray(data.connections) ? data.connections : [];
     const keyed = Array.isArray(data.keyed) ? data.keyed : connections.filter((link) => link.keyed);
     const blocked = Array.isArray(data.blocked) ? data.blocked : [];
+    const notKeyed = Math.max(0, connections.length - keyed.length);
 
+    snapshot = { connections, keyed, blocked };
+    allCount.textContent = String(connections.length);
     keyedCount.textContent = String(keyed.length);
-    connectedCount.textContent = String(connections.length);
+    connectedCount.textContent = String(notKeyed);
     blockedCount.textContent = String(blocked.length);
-    keyedPill.textContent = String(keyed.length);
-    connectedPill.textContent = String(connections.length);
-    blockedPill.textContent = String(blocked.length);
 
-    keyedList.innerHTML = keyed.length
-      ? keyed.map(keyedRow).join('')
-      : '<div class="empty-state good-state">No connected node is keyed.</div>';
-
-    connectedList.innerHTML = connections.length
-      ? connections.map(connectedRow).join('')
-      : '<div class="empty-state">No other nodes are connected.</div>';
-
-    blockedList.innerHTML = blocked.length
-      ? blocked.map(blockedRow).join('')
-      : '<div class="empty-state">No nodes are blocked.</div>';
+    renderLists();
 
     const allowCount = Number(data.allowlistCount || 0);
     if (allowCount > 0) {
@@ -176,6 +262,7 @@
     }
 
     liveText.textContent = 'Live';
+    if (lastUpdate) lastUpdate.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}`;
   };
 
   const refreshStatus = async () => {
@@ -195,6 +282,7 @@
       render(data);
     } catch (_) {
       liveText.textContent = 'Retrying';
+      if (lastUpdate) lastUpdate.textContent = 'Live status retrying…';
     }
   };
 
@@ -206,7 +294,7 @@
     if (action === 'block') {
       confirmMessage.textContent = `Disconnect node ${target} now and block it from reconnecting?`;
       reasonWrap.classList.remove('hidden');
-      confirmGo.textContent = 'Disconnect & Block';
+      confirmGo.textContent = 'Block Node';
       confirmGo.className = 'button danger';
     } else if (action === 'disconnect') {
       confirmMessage.textContent = `Disconnect ${visibleTarget} now without blocking it?`;
@@ -249,8 +337,8 @@
       }
 
       const data = await response.json();
-
       let message = data.message || 'Action failed.';
+
       if (data.ok
           && action === 'disconnect'
           && /^\d{1,6}$/.test(displayTarget)
@@ -270,12 +358,7 @@
   const listClick = (event) => {
     const disconnect = event.target.closest('.disconnect-node');
     if (disconnect) {
-      openConfirm(
-        'disconnect',
-        disconnect.dataset.node || '',
-        '',
-        disconnect.dataset.display || ''
-      );
+      openConfirm('disconnect', disconnect.dataset.node || '', '', disconnect.dataset.display || '');
       return;
     }
 
@@ -291,9 +374,9 @@
     }
   };
 
-  keyedList.addEventListener('click', listClick);
-  connectedList.addEventListener('click', listClick);
+  liveList.addEventListener('click', listClick);
   blockedList.addEventListener('click', listClick);
+  filterButtons.forEach((button) => button.addEventListener('click', () => setFilter(button.dataset.filter || 'all')));
 
   manualForm?.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -379,11 +462,13 @@
       if (newer(remote, local)) {
         brand.classList.add('has-update');
         brand.title = `ASL3 Node Blocker & Restore v${local} → v${remote} update available`;
+        brand.setAttribute('aria-label', `Open repository. Update available: v${local} to v${remote}.`);
       }
     } catch (_) {
-      // Update lookup is intentionally non-critical.
+      // Silent by design.
     }
   };
 
   check();
+  window.setInterval(check, 15 * 60 * 1000);
 })();

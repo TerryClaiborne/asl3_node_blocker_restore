@@ -2,18 +2,22 @@
 
 ASL3 Node Blocker & Restore is a browser-based utility for AllStarLink 3 nodes.
 
-It provides a quick way to see current connections, identify keyed nodes, disconnect a connection, block a problem AllStar node from reconnecting, and restore access later.
+It provides a quick way to see current connections, identify keyed stations, disconnect a connection, block a problem AllStar node from reconnecting, and restore access later.
 
 ## Features
 
-- Live connected-node display
-- Keyed Now display
-- Disconnect a connected node without blocking it
-- Disconnect Web Transceiver connections
-- Detect EchoLink connections with Disconnect-only control
+- Live Links display for active connections
+- Keyed connections automatically shown first
+- AllStar node number and callsign display
+- Disconnect connected AllStar nodes without blocking them
 - Disconnect & Block numeric AllStar nodes
+- Web Transceiver detection with Disconnect-only control
+- EchoLink callsign and official EchoLink node identification
+- EchoLink Disconnect-only control
+- Blocked-node display read from the ASL3/Asterisk denylist
 - Restore blocked nodes
-- Manual block by node number
+- Manual block by AllStar node number
+- All, Keyed, Connected, and Blocked filters
 - Optional administrator password
 - Light, dark, and automatic themes
 - Desktop and cellphone friendly
@@ -129,12 +133,4 @@ Existing local settings and the administrator password are preserved during upda
 
 ```bash
 sudo /var/www/html/asl3_blocker/setup_asl3_node_blocker_restore.sh --uninstall
-```
-
-## Version
-
-Current version:
-
-```text
-1.0.1
 ```

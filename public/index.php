@@ -45,38 +45,37 @@ $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_
         </svg>
       </div>
       <div class="brand-copy">
-        <h1>ASL3 Node Blocker &amp; Restore</h1>
-        <p class="subtitle">See who is keyed, disconnect and block them, then restore access later.</p>
+        <h1>ASL3 Node Blocker</h1>
+        <p class="subtitle">Node <?= h($node !== '' ? $node : '—') ?> · Live link control</p>
       </div>
     </a>
+
     <div class="top-actions">
-      <div class="live-badge" title="Updates automatically">
+      <div class="live-badge" title="Status polls every second">
         <span class="live-dot" aria-hidden="true"></span>
         <span id="liveText">Live</span>
       </div>
-      <button class="icon-button" id="themeButton" type="button" aria-label="Change theme" title="Change theme">◐</button>
-      <?php if ($authEnabled): ?><a class="button ghost small" href="logout.php">Logout</a><?php endif; ?>
+      <button class="theme-button" id="themeButton" type="button" aria-label="Change theme" title="Change theme">
+        <span class="theme-wide">Light / Dark</span><span class="theme-compact">◐</span>
+      </button>
+      <?php if ($authEnabled): ?><a class="button ghost small logout-button" href="logout.php">Logout</a><?php endif; ?>
     </div>
   </header>
 
-  <section class="summary-bar" aria-label="Node summary">
-    <div class="summary-item">
-      <span>Your node</span>
-      <strong id="localNode"><?= h($node !== '' ? $node : '—') ?></strong>
-    </div>
-    <div class="summary-item">
-      <span>Keyed</span>
-      <strong id="keyedCount">—</strong>
-    </div>
-    <div class="summary-item">
-      <span>Connected</span>
-      <strong id="connectedCount">—</strong>
-    </div>
-    <div class="summary-item">
-      <span>Blocked</span>
-      <strong id="blockedCount">—</strong>
-    </div>
-  </section>
+  <nav class="filter-bar" aria-label="Connection view">
+    <button class="filter-button is-active" type="button" data-filter="all" aria-pressed="true">
+      <span>All</span><strong id="allCount">—</strong>
+    </button>
+    <button class="filter-button filter-keyed" type="button" data-filter="keyed" aria-pressed="false">
+      <span>Keyed</span><strong id="keyedCount">—</strong>
+    </button>
+    <button class="filter-button filter-connected" type="button" data-filter="connected" aria-pressed="false">
+      <span>Connected</span><strong id="connectedCount">—</strong>
+    </button>
+    <button class="filter-button filter-blocked" type="button" data-filter="blocked" aria-pressed="false">
+      <span>Blocked</span><strong id="blockedCount">—</strong>
+    </button>
+  </nav>
 
   <div id="noticeArea" class="notice-area" aria-live="polite"></div>
   <div id="allowlistWarning" class="notice warning hidden">
@@ -85,54 +84,48 @@ $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_
   </div>
   <div id="statusWarning" class="notice error hidden"></div>
 
-  <section class="panel-grid">
-    <article class="card keyed-panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow danger-label">Priority</p>
-          <h2>Keyed Now</h2>
-        </div>
-        <span class="count-pill danger-pill" id="keyedPill">0</span>
+  <article class="card live-panel" id="livePanel">
+    <div class="section-heading live-heading">
+      <div>
+        <p class="eyebrow">Live links</p>
+        <h2 id="liveHeading">All Connections</h2>
       </div>
-      <p class="section-help">Keyed connections appear here first so a stuck transmitter is easy to find.</p>
-      <div id="keyedList" class="node-list">
-        <div class="empty-state">Checking keyed activity…</div>
+      <div class="live-meta">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="lastUpdate">Waiting for live data…</span>
       </div>
-    </article>
+    </div>
 
-    <article class="card connected-panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Live links</p>
-          <h2>Connected Nodes</h2>
-        </div>
-        <span class="count-pill" id="connectedPill">0</span>
-      </div>
-      <p class="section-help">All direct connections to your node. Keyed rows are highlighted.</p>
-      <div id="connectedList" class="node-list">
-        <div class="empty-state">Checking current connections…</div>
-      </div>
-    </article>
+    <div class="link-table-head" aria-hidden="true">
+      <span>Status</span>
+      <span>Node / Station</span>
+      <span>Mode</span>
+      <span>Activity</span>
+      <span>Actions</span>
+    </div>
 
-    <article class="card blocked-panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow restore-label">Restore</p>
-          <h2>Blocked Nodes</h2>
-        </div>
-        <span class="count-pill" id="blockedPill">0</span>
+    <div id="liveList" class="link-list">
+      <div class="empty-state">Checking current connections…</div>
+    </div>
+  </article>
+
+  <article class="card blocked-panel hidden" id="blockedPanel">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow restore-label">Restore</p>
+        <h2>Blocked Nodes</h2>
       </div>
-      <p class="section-help">Restore Access removes the denylist entry. The remote node may then connect again.</p>
-      <div id="blockedList" class="node-list">
-        <div class="empty-state">Checking blocked nodes…</div>
-      </div>
-    </article>
-  </section>
+      <span class="blocked-note">Only numeric AllStar nodes can be blocked.</span>
+    </div>
+    <div id="blockedList" class="blocked-list">
+      <div class="empty-state">Checking blocked nodes…</div>
+    </div>
+  </article>
 
   <details class="card manual-card">
     <summary>
       <span class="manual-summary-title">Block a Node by Number</span>
-      <span class="manual-summary-note">For a node that is not currently connected</span>
+      <span class="manual-summary-note">For a numeric AllStar node that is not currently connected</span>
     </summary>
     <form id="manualBlockForm" class="manual-form">
       <label class="field">
@@ -145,13 +138,13 @@ $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_
         <input type="text" name="reason" maxlength="80" autocomplete="off"
                placeholder="Stuck keyed, loop, temporary block…">
       </label>
-      <button class="button danger" type="submit">Disconnect &amp; Block</button>
+      <button class="button danger" type="submit">Block Node</button>
     </form>
   </details>
 
   <footer>
-    <span>v<?= h($version) ?></span>
-    <span>Live status updates automatically.</span>
+    <span>v<?= h($version) ?> · Node <?= h($node !== '' ? $node : '—') ?></span>
+    <span>Live status updates every second.</span>
   </footer>
 </main>
 

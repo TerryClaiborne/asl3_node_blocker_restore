@@ -203,6 +203,23 @@ command -v visudo >/dev/null || fail "visudo is required."
 [[ -x /usr/sbin/asterisk ]] || fail "/usr/sbin/asterisk was not found."
 id "$WEB_USER" >/dev/null 2>&1 || fail "Web user $WEB_USER does not exist."
 
+# v1.0.2 identity support requires these source classes.
+required_source_files=(
+  "src/CacheMaintenance.php"
+  "src/EchoLink.php"
+  "src/NodeIdentity.php"
+)
+
+for relative in "${required_source_files[@]}"; do
+  [[ -f "$SOURCE_DIR/$relative" ]] || fail "Required application file is missing: $relative"
+done
+
+# Runtime state must never be committed to Git.
+for ignore_pattern in '/run/' '/cache/'; do
+  grep -qxF "$ignore_pattern" "$SOURCE_DIR/.gitignore" ||
+    fail ".gitignore is missing required runtime pattern: $ignore_pattern"
+done
+
 find "$SOURCE_DIR/public" "$SOURCE_DIR/src" "$SOURCE_DIR/bin" -type f -name '*.php' -print0 |
 while IFS= read -r -d '' f; do
   php -l "$f" >/dev/null || fail "PHP syntax failed: $f"
@@ -245,12 +262,46 @@ else
   info "Running installer from the installed application directory; keeping the current source tree in place."
 fi
 
+# Runtime directories are ignored by Git and therefore must be
+# created explicitly for both fresh installs and updates.
+# Existing runtime contents are preserved.
+install -d -o root -g root -m 0755 \
+  "$APP_DIR/run" \
+  "$APP_DIR/cache" \
+  "$APP_DIR/cache/echolink"
+
 chown -R root:root "$APP_DIR"
 find "$APP_DIR" -path "$APP_DIR/.git" -prune -o -type d -exec chmod 0755 {} +
 find "$APP_DIR" -path "$APP_DIR/.git" -prune -o -type f -exec chmod 0644 {} +
 chmod 0755 "$APP_DIR/setup_asl3_node_blocker_restore.sh" "$APP_DIR/bin/asl3-node-blocker-helper"
 
 write_config "$node" "${existing_auth:-0}" "${existing_user:-admin}" "$existing_hash"
+
+# Verify the v1.0.2 source classes actually reached the installed tree.
+for relative in "${required_source_files[@]}"; do
+  [[ -f "$APP_DIR/$relative" ]] ||
+    fail "Installed application file is missing: $relative"
+
+  owner_mode="$(stat -c '%U:%G:%a' "$APP_DIR/$relative")"
+  [[ "$owner_mode" == "root:root:644" ]] ||
+    fail "Incorrect installed ownership/mode for $relative: $owner_mode"
+done
+
+# The privileged status reader runs through the existing root helper.
+# These runtime directories therefore remain root-owned; no broader
+# www-data permission or additional sudoers rule is required.
+for runtime_dir in \
+  "$APP_DIR/run" \
+  "$APP_DIR/cache" \
+  "$APP_DIR/cache/echolink"
+do
+  [[ -d "$runtime_dir" ]] ||
+    fail "Required runtime directory is missing: $runtime_dir"
+
+  owner_mode="$(stat -c '%U:%G:%a' "$runtime_dir")"
+  [[ "$owner_mode" == "root:root:755" ]] ||
+    fail "Incorrect runtime ownership/mode for $runtime_dir: $owner_mode"
+done
 
 install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 "$APP_DIR/bin/asl3-node-blocker-helper" "$HELPER_DEST"

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/src/EchoLink.php';
+
 /*
  * Root-side live status reader for ASL3 Node Blocker & Restore.
  * It reads AMI credentials locally, requests app_rpt XStat + SawStat,
@@ -114,19 +116,38 @@ function ami_action($fp, array $fields, string $actionId): array
     return ami_read_response($fp, $actionId);
 }
 
-function parse_echolink_nodes(array $lines): array
+function parse_echolink_entries(array $lines): array
 {
-    $nodes = [];
+    $entries = [];
 
     foreach ($lines as $line) {
         $line = trim((string)$line);
 
-        if (preg_match('/^Output:\s+(\d{1,6})\s+/', $line, $match) === 1) {
-            $nodes[(string)$match[1]] = true;
+        if (preg_match(
+            '/^Output:\s+(\d{1,6})\s+([A-Za-z0-9*_.\/-]{1,32})(?:\s+|$)/',
+            $line,
+            $match
+        ) !== 1) {
+            continue;
         }
+
+        $relayNode = ltrim((string)$match[1], '0');
+        if ($relayNode === '') {
+            $relayNode = '0';
+        }
+
+        $callsign = strtoupper(trim((string)$match[2]));
+        if ($callsign === '') {
+            continue;
+        }
+
+        $entries[$relayNode] = [
+            'node' => $relayNode,
+            'callsign' => $callsign,
+        ];
     }
 
-    return array_keys($nodes);
+    return $entries;
 }
 
 function parse_links(array $xstatLines, array $sawStatLines, array $echoNodeLines): array
@@ -201,18 +222,21 @@ function parse_links(array $xstatLines, array $sawStatLines, array $echoNodeLine
     }
 
     /*
-     * Keep EchoLink control identity separate from display identity.
+     * EchoLink control identity and display identity are deliberately separate.
      *
-     * app_rpt may expose a temporary 3xxxxxx control target, while
-     * chan_echolink's live node table contains the real EchoLink node ID.
+     * app_rpt exposes a 3xxxxxx control target. In relay mode, chan_echolink
+     * may expose a temporary numeric node as well. Neither number is trusted
+     * as the permanent display identity.
      *
-     * First match normal mapped targets directly. If exactly one unmatched
-     * EchoLink control row and one unmatched live EchoLink node remain, that
-     * pair is unambiguous and safe to associate. Otherwise we do not guess.
+     * First associate the app_rpt control row with chan_echolink's LIVE
+     * CALLSIGN. Then resolve that callsign through the same proven
+     * callsign-first resolver used by AllStar Connect.
+     *
+     * If the live association is ambiguous, do not guess.
      */
-    $officialEchoNodes = parse_echolink_nodes($echoNodeLines);
-    $remainingOfficial = array_fill_keys($officialEchoNodes, true);
-    $echoDisplayNodes = [];
+    $liveEchoEntries = parse_echolink_entries($echoNodeLines);
+    $remainingLive = $liveEchoEntries;
+    $echoLiveIdentity = [];
     $unmatchedControls = [];
 
     foreach (array_keys($connections) as $controlNode) {
@@ -227,17 +251,78 @@ function parse_links(array $xstatLines, array $sawStatLines, array $echoNodeLine
             $candidate = '0';
         }
 
-        if (isset($remainingOfficial[$candidate])) {
-            $echoDisplayNodes[$controlNode] = $candidate;
-            unset($remainingOfficial[$candidate]);
+        if (isset($remainingLive[$candidate])) {
+            $echoLiveIdentity[$controlNode] = $remainingLive[$candidate];
+            unset($remainingLive[$candidate]);
         } else {
             $unmatchedControls[] = $controlNode;
         }
     }
 
-    if (count($unmatchedControls) === 1 && count($remainingOfficial) === 1) {
-        $echoDisplayNodes[$unmatchedControls[0]] =
-            (string)array_key_first($remainingOfficial);
+    if (count($unmatchedControls) === 1 && count($remainingLive) === 1) {
+        $controlNode = (string)$unmatchedControls[0];
+        $relayNode = (string)array_key_first($remainingLive);
+        $echoLiveIdentity[$controlNode] = $remainingLive[$relayNode];
+    }
+
+    $resolverConnections = [];
+
+    foreach ($echoLiveIdentity as $controlNode => $entry) {
+        $callsign = strtoupper(trim((string)($entry['callsign'] ?? '')));
+        $relayNode = trim((string)($entry['node'] ?? ''));
+
+        if ($callsign === '') {
+            continue;
+        }
+
+        $resolverConnections[] = [
+            'kind' => 'echo',
+            'callsign' => $callsign,
+            'echolink_node' => $relayNode,
+            'reported_node' => (string)$controlNode,
+            'node' => (string)$controlNode,
+        ];
+    }
+
+    $resolverEntries = [];
+
+    if ($resolverConnections !== []) {
+        try {
+            $snapshot = (new \AllStarConnect\EchoLink())->snapshot($resolverConnections);
+            $resolverEntries = is_array($snapshot['entries'] ?? null)
+                ? $snapshot['entries']
+                : [];
+        } catch (\Throwable $e) {
+            $resolverEntries = [];
+        }
+    }
+
+    $echoDisplayNodes = [];
+    $echoCallsigns = [];
+
+    foreach ($echoLiveIdentity as $controlNode => $entry) {
+        $callsign = strtoupper(trim((string)($entry['callsign'] ?? '')));
+        if ($callsign === '') {
+            continue;
+        }
+
+        $echoCallsigns[(string)$controlNode] = $callsign;
+
+        $resolved = $resolverEntries['call:' . $callsign] ?? null;
+        if (!is_array($resolved) || empty($resolved['found'])) {
+            continue;
+        }
+
+        $officialNode = trim((string)($resolved['node'] ?? ''));
+        $resolvedCallsign = strtoupper(trim((string)($resolved['callsign'] ?? '')));
+
+        if ($officialNode === ''
+            || preg_match('/^\d{1,6}$/', $officialNode) !== 1
+            || $resolvedCallsign !== $callsign) {
+            continue;
+        }
+
+        $echoDisplayNodes[(string)$controlNode] = $officialNode;
     }
 
     $links = [];
@@ -272,8 +357,26 @@ function parse_links(array $xstatLines, array $sawStatLines, array $echoNodeLine
             ? (string)($echoDisplayNodes[$nodeText] ?? 'EchoLink ID unavailable')
             : $nodeText;
 
+        $nodeCallsign = '';
+
+        if (!$isEchoLink && $blockable) {
+            $nodeRecord = \AllStarConnect\NodeIdentity::astdbLookup($nodeText);
+            if (is_array($nodeRecord)) {
+                $nodeCallsign = strtoupper(trim((string)($nodeRecord['call'] ?? '')));
+            }
+        }
+
         $links[] = $connection + [
             'display_node' => $displayNode,
+            'callsign' => $isEchoLink
+                ? (string)($echoCallsigns[$nodeText] ?? '')
+                : $nodeCallsign,
+            'echolink_node' => $isEchoLink
+                ? (string)($echoDisplayNodes[$nodeText] ?? '')
+                : '',
+            'identity_verified' => $isEchoLink
+                ? isset($echoDisplayNodes[$nodeText])
+                : true,
             'link_mode' => $mode,
             'mode_label' => $modeLabel,
             'keyed' => !empty($keyed[$node]['active']),
