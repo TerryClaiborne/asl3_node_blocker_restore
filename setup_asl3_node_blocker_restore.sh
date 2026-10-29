@@ -208,6 +208,7 @@ required_source_files=(
   "src/CacheMaintenance.php"
   "src/EchoLink.php"
   "src/NodeIdentity.php"
+  "bin/asl3-node-blocker-appearance.php"
 )
 
 for relative in "${required_source_files[@]}"; do

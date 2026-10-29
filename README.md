@@ -19,10 +19,12 @@ It provides a quick way to see current connections, identify keyed stations, dis
 - Manual block by AllStar node number
 - All, Keyed, Connected, and Blocked filters
 - Optional administrator password
-- Light, dark, and automatic themes
+- Light and dark themes with Default or Advanced custom colors
 - Desktop and cellphone friendly
 - Automatic local ASL3 node detection
 - Update notification star that pulses when a newer GitHub version is available
+
+**Default** is the normal appearance mode. **Advanced** lets you choose your own colors separately for Light and Dark.
 
 
 ## Screenshots

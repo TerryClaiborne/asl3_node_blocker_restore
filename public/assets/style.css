@@ -42,35 +42,12 @@ html[data-theme="dark"] {
   --shadow: 0 6px 18px rgba(0,0,0,.24);
 }
 
-@media (prefers-color-scheme: dark) {
-  html[data-theme="auto"] {
-    --bg: #0b1220;
-    --card: #111c2e;
-    --card-2: #152238;
-    --text: #edf3ff;
-    --muted: #98a8c2;
-    --line: #2b3b54;
-    --primary: #739bff;
-    --primary-soft: #162d61;
-    --danger: #ff5f6d;
-    --danger-dark: #ff808a;
-    --danger-soft: #3b1820;
-    --success: #40d783;
-    --success-soft: #123522;
-    --warning: #e8b44b;
-    --focus: #8bacff;
-    --wt: #54a7ff;
-    --echolink: #b889ff;
-    --shadow: 0 6px 18px rgba(0,0,0,.24);
-  }
-}
-
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--bg); }
 body {
   margin: 0;
   background: var(--bg);
-  color: var(--text);
+  color: var(--page-text, var(--text));
   font: 14px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 button, input { font: inherit; }
@@ -149,7 +126,6 @@ h2 { font-size: 1.05rem; }
 .restore-label { color: var(--success); }
 
 .top-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.live-badge,
 .theme-button {
   min-height: 34px;
   padding: 6px 10px;
@@ -164,7 +140,6 @@ h2 { font-size: 1.05rem; }
   font-size: .7rem;
   font-weight: 800;
 }
-.live-badge { color: var(--muted); }
 .theme-button { cursor: pointer; }
 .theme-compact { display: none; }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: 0 0 auto; }
@@ -464,7 +439,6 @@ footer {
   .brand-mark, .brand-star-svg { width: 31px; height: 31px; }
   h1 { font-size: .98rem; }
   .subtitle { font-size: .63rem; margin-top: 1px; }
-  .live-badge { display: none; }
   .theme-wide { display: none; }
   .theme-compact { display: inline; }
   .theme-button { width: 32px; min-height: 32px; padding: 4px; }
@@ -550,4 +524,407 @@ footer {
   color: #a855f7;
   font-size: 0.72em;
   vertical-align: 0.08em;
+}
+
+
+/* Color settings menu */
+
+.color-menu {
+  position: relative;
+}
+
+.color-menu > summary {
+  list-style: none;
+}
+
+.color-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.color-button {
+  cursor: pointer;
+}
+
+.color-compact {
+  display: none;
+}
+
+.color-popover {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 7px);
+  right: 0;
+
+  width: 280px;
+  padding: 11px;
+
+  border: 1px solid var(--line);
+  border-radius: 11px;
+
+  background: var(--card);
+  color: var(--text);
+
+  box-shadow: 0 16px 36px rgba(0,0,0,.30);
+}
+
+.color-field {
+  display: grid;
+  gap: 5px;
+
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.color-field select {
+  width: 100%;
+  min-height: 40px;
+
+  padding: 6px 8px;
+
+  border: 1px solid var(--line);
+  border-radius: 8px;
+
+  background: var(--card-2);
+  color: var(--text);
+}
+
+.color-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+
+  margin-top: 10px;
+}
+
+@media (max-width: 760px) {
+
+  .color-wide {
+    display: none;
+  }
+
+  .color-compact {
+    display: inline;
+  }
+
+  .color-button {
+    width: 32px;
+    min-height: 32px;
+    padding: 4px;
+  }
+
+  .color-popover {
+    position: fixed;
+
+    top: 52px;
+    right: 6px;
+    left: 6px;
+
+    width: auto;
+  }
+
+  .color-field select {
+    min-height: 44px;
+  }
+
+  .color-actions .button {
+    min-height: 42px;
+  }
+}
+
+
+/* Secondary text and table headings */
+
+/*
+ * Default Light uses its original muted colors.
+ * Default Dark keeps the original background/cards but
+ * receives brighter secondary text and table headings.
+ *
+ * Advanced can override these variables independently
+ * for Light and Dark.
+ */
+
+:root {
+  --secondary-text: var(--muted);
+  --table-label: var(--muted);
+}
+
+html[data-theme="dark"] {
+  --secondary-text: #D3DEED;
+  --table-label: #B2D4EA;
+}
+
+.link-table-head {
+  color: var(
+    --table-label,
+    var(--muted)
+  );
+}
+
+.node-meta,
+.activity-cell,
+.live-meta,
+.blocked-note,
+.subtitle {
+  color: var(
+    --secondary-text,
+    var(--muted)
+  );
+}
+
+
+/* ==========================================================
+   Advanced color picker
+   ========================================================== */
+
+/* Advanced color selections */
+
+.advanced-fields {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.advanced-fields[hidden],
+.color-editor[hidden],
+#colorMainPanel[hidden] {
+  display: none !important;
+}
+
+.advanced-color-button {
+  min-height: 44px;
+
+  padding: 7px 9px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  border: 1px solid var(--line);
+  border-radius: 9px;
+
+  background: var(--card-2);
+  color: var(--text);
+
+  cursor: pointer;
+
+  font-size: .69rem;
+  font-weight: 800;
+}
+
+.color-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.color-value code {
+  color: var(--secondary-text, var(--muted));
+  font-size: .63rem;
+}
+
+.color-swatch {
+  width: 28px;
+  height: 23px;
+
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.color-message {
+  min-height: 2.2em;
+
+  margin: 9px 0 0;
+
+  color: var(--secondary-text, var(--muted));
+
+  font-size: .64rem;
+  line-height: 1.35;
+}
+
+.color-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.color-editor-title {
+  font-size: .76rem;
+  font-weight: 900;
+}
+
+.color-editor-preview {
+  height: 52px;
+
+  border: 1px solid var(--line);
+  border-radius: 9px;
+
+  background: var(--primary);
+}
+
+.slider-field {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  align-items: center;
+  gap: 8px;
+
+  color: var(--secondary-text, var(--muted));
+
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.slider-field input[type="range"] {
+  width: 100%;
+}
+
+.color-editor .color-field input {
+  width: 100%;
+  min-height: 40px;
+
+  padding: 7px 9px;
+
+  border: 1px solid var(--line);
+  border-radius: 8px;
+
+  background: var(--card-2);
+  color: var(--text);
+}
+
+
+@media (max-width: 760px) {
+
+  .advanced-color-button {
+    min-height: 47px;
+  }
+
+  .slider-field {
+    grid-template-columns: 76px 1fr;
+  }
+
+  .color-editor .color-field input {
+    min-height: 44px;
+  }
+}
+
+
+/* Default Dark black cards */
+
+html[data-theme="dark"][data-palette="default"] {
+  --card: #000000;
+  --card-2: #0A0A0A;
+}
+
+
+/* Mobile theme control and quick-start color palette */
+
+/*
+ * Large Advanced color preview doubles as the quick
+ * starting-color selector.
+ */
+.color-editor-preview {
+  width: 100%;
+  padding: 0;
+
+  cursor: pointer;
+
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.color-editor-preview:hover,
+.color-editor-preview:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+
+/* Starting-color choices */
+
+.quick-color-palette {
+  display: grid;
+
+  grid-template-columns:
+    repeat(6, minmax(0, 1fr));
+
+  gap: 7px;
+
+  padding: 8px;
+
+  border: 1px solid var(--line);
+  border-radius: 9px;
+
+  background: var(--card-2);
+}
+
+.quick-color-palette[hidden] {
+  display: none !important;
+}
+
+.quick-color-swatch {
+  aspect-ratio: 1 / 1;
+
+  min-width: 0;
+  min-height: 35px;
+
+  padding: 0;
+
+  border: 2px solid
+    rgba(255, 255, 255, .40);
+
+  border-radius: 7px;
+
+  cursor: pointer;
+
+  box-shadow:
+    inset 0 0 0 1px
+    rgba(0, 0, 0, .30);
+}
+
+.quick-color-swatch:hover,
+.quick-color-swatch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.quick-color-help {
+  margin-top: -3px;
+
+  color:
+    var(
+      --secondary-text,
+      var(--muted)
+    );
+
+  font-size: .62rem;
+  line-height: 1.35;
+}
+
+
+/*
+ * Cellphone:
+ * Colors palette stays compact.
+ * Light/Dark gets a larger touch target and icon.
+ */
+@media (max-width: 760px) {
+
+  #themeButton {
+    width: 32px;
+    min-width: 32px;
+    min-height: 32px;
+
+    padding: 4px;
+  }
+
+  #themeButton .theme-compact {
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .quick-color-palette {
+    gap: 6px;
+  }
+
+  .quick-color-swatch {
+    min-height: 39px;
+  }
 }

@@ -5,6 +5,7 @@ APP_DIR="/var/www/html/asl3_blocker"
 CONFIG_FILE="$APP_DIR/config.ini"
 ASTERISK_BIN="/usr/sbin/asterisk"
 STATUS_READER="$APP_DIR/bin/asl3-node-blocker-status.php"
+APPEARANCE_WRITER="$APP_DIR/bin/asl3-node-blocker-appearance.php"
 
 die() {
   printf 'ERROR\t%s\n' "$1"
@@ -81,6 +82,17 @@ case "$ACTION" in
   status)
     [[ -r "$STATUS_READER" ]] || die "Live status reader is missing."
     exec /usr/bin/php "$STATUS_READER" "$MYNODE"
+    ;;
+
+  appearance)
+    [[ -n "$TARGET" ]] || die "Missing appearance payload."
+    [[ ${#TARGET} -le 24000 ]] || die "Appearance payload is too large."
+    [[ "$TARGET" =~ ^[A-Za-z0-9+/=]+$ ]] || die "Appearance payload encoding is invalid."
+    [[ -r "$APPEARANCE_WRITER" ]] || die "Appearance writer is missing."
+
+    if ! printf '%s' "$TARGET" |          /usr/bin/base64 --decode |          /usr/bin/php "$APPEARANCE_WRITER"; then
+      die "Appearance profile could not be saved."
+    fi
     ;;
   connections)
     run_ast "rpt nodes $MYNODE"

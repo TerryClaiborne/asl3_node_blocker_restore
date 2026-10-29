@@ -21,7 +21,6 @@
   const allowlistWarning = $('allowlistWarning');
   const allowlistText = $('allowlistText');
   const statusWarning = $('statusWarning');
-  const liveText = $('liveText');
   const themeButton = $('themeButton');
   const dialog = $('confirmDialog');
   const confirmMessage = $('confirmMessage');
@@ -77,23 +76,1330 @@
     return elapsed || 'Connected';
   };
 
-  const applyTheme = (theme) => {
-    document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem('asl3-blocker-theme', theme); } catch (_) {}
-    if (themeButton) {
-      themeButton.dataset.theme = theme;
-      themeButton.title = `Theme: ${theme}`;
+  const blockerAppearanceNode =
+    document.getElementById(
+      'blockerAppearance'
+    );
+
+  const blockerAppearanceDefault = {
+    version: 1,
+    theme: 'dark',
+    mode: 'default',
+    custom: {
+      dark: null,
+      light: null
     }
   };
 
-  let theme = 'auto';
-  try { theme = localStorage.getItem('asl3-blocker-theme') || 'auto'; } catch (_) {}
-  applyTheme(theme);
+  let blockerAppearance =
+    JSON.parse(
+      JSON.stringify(
+        blockerAppearanceDefault
+      )
+    );
 
-  themeButton?.addEventListener('click', () => {
-    const current = document.documentElement.dataset.theme || 'auto';
-    applyTheme(current === 'auto' ? 'dark' : current === 'dark' ? 'light' : 'auto');
+  try {
+    const parsed =
+      JSON.parse(
+        blockerAppearanceNode?.textContent ||
+        '{}'
+      );
+
+    if (
+      parsed &&
+      typeof parsed === 'object'
+    ) {
+      blockerAppearance = {
+        version: 1,
+
+        theme:
+          parsed.theme === 'light'
+            ? 'light'
+            : 'dark',
+
+        mode:
+          parsed.mode === 'custom'
+            ? 'custom'
+            : 'default',
+
+        custom: {
+          dark:
+            parsed.custom?.dark &&
+            typeof parsed.custom.dark === 'object'
+              ? parsed.custom.dark
+              : null,
+
+          light:
+            parsed.custom?.light &&
+            typeof parsed.custom.light === 'object'
+              ? parsed.custom.light
+              : null
+        }
+      };
+    }
+  } catch (_) {}
+
+  const blockerSaveAppearance =
+    async () => {
+      const appRoot =
+        document.getElementById(
+          'blockerApp'
+        );
+
+      const csrf =
+        String(
+          appRoot?.dataset.csrf || ''
+        );
+
+      if (!csrf) {
+        throw new Error(
+          'Missing security token.'
+        );
+      }
+
+      const form =
+        new FormData();
+
+      form.set('csrf', csrf);
+      form.set(
+        'action',
+        'appearance'
+      );
+      form.set(
+        'appearance',
+        JSON.stringify(
+          blockerAppearance
+        )
+      );
+
+      const response =
+        await fetch(
+          'action.php',
+          {
+            method: 'POST',
+            body: form,
+            credentials: 'same-origin',
+            cache: 'no-store'
+          }
+        );
+
+      let result = null;
+
+      try {
+        result = await response.json();
+      } catch (_) {}
+
+      if (
+        !response.ok ||
+        !result?.ok
+      ) {
+        throw new Error(
+          result?.message ||
+          'Appearance settings could not be saved.'
+        );
+      }
+
+      return result;
+    };
+
+  const blockerSaveFailed =
+    (error) => {
+      console.error(
+        'Appearance save failed:',
+        error
+      );
+
+      showNotice(
+        'error',
+        'Appearance could not be saved to the node.'
+      );
+    };
+
+  const applyTheme = (theme) => {
+    const selected =
+      theme === 'light'
+        ? 'light'
+        : 'dark';
+
+    document.documentElement
+      .dataset
+      .theme =
+        selected;
+
+    blockerAppearance.theme =
+      selected;
+
+    if (themeButton) {
+      themeButton.dataset.theme =
+        selected;
+
+      themeButton.title =
+        `Theme: ${selected}`;
+    }
+  };
+
+  applyTheme(
+    blockerAppearance.theme
+  );
+
+  themeButton?.addEventListener(
+    'click',
+    () => {
+      const current =
+        document.documentElement
+          .dataset
+          .theme ||
+        'dark';
+
+      const next =
+        current === 'dark'
+          ? 'light'
+          : 'dark';
+
+      applyTheme(next);
+
+      requestAnimationFrame(
+        blockerApplyActiveTheme
+      );
+
+      void blockerSaveAppearance()
+        .catch(blockerSaveFailed);
+    }
+  );
+
+
+  // =========================================================
+  // BLOCKER COLOR PICKER LOGIC
+  // Separate custom colors for Light and Dark.
+  // =========================================================
+
+  const blockerColorMenu =
+    document.getElementById('colorMenu');
+
+  const blockerColorMainPanel =
+    document.getElementById('colorMainPanel');
+
+  const blockerColorPreset =
+    document.getElementById('colorPreset');
+
+  const blockerCustomFields =
+    document.getElementById('customColorFields');
+
+  const blockerColorMessage =
+    document.getElementById('colorMessage');
+
+  const blockerColorEditor =
+    document.getElementById('colorEditor');
+
+  const blockerColorEditorTitle =
+    document.getElementById('colorEditorTitle');
+
+  const blockerColorEditorPreview =
+    document.getElementById('colorEditorPreview');
+
+  const blockerQuickPalette =
+    document.getElementById('quickColorPalette');
+
+  const blockerHue =
+    document.getElementById('colorHue');
+
+  const blockerSaturation =
+    document.getElementById('colorSaturation');
+
+  const blockerBrightness =
+    document.getElementById('colorBrightness');
+
+  const blockerHex =
+    document.getElementById('colorHex');
+
+  const blockerUseColor =
+    document.getElementById('useColor');
+
+  const blockerCancelColor =
+    document.getElementById('cancelColor');
+
+  const blockerApplyColors =
+    document.getElementById('applyColors');
+
+  const blockerResetColors =
+    document.getElementById('resetColors');
+
+  const BLOCKER_MODE_KEY =
+    'appearance-mode';
+
+  const blockerCustomKey = (theme) =>
+    `appearance-custom-${theme}`;
+
+  const blockerCustomThemeFromKey =
+    (key) => {
+      if (
+        key ===
+        blockerCustomKey('dark')
+      ) {
+        return 'dark';
+      }
+
+      if (
+        key ===
+        blockerCustomKey('light')
+      ) {
+        return 'light';
+      }
+
+      return '';
+    };
+
+  const blockerStoreGet = (
+    key,
+    fallback = ''
+  ) => {
+    if (key === BLOCKER_MODE_KEY) {
+      return blockerAppearance.mode ||
+        fallback;
+    }
+
+    const theme =
+      blockerCustomThemeFromKey(key);
+
+    if (theme) {
+      const value =
+        blockerAppearance
+          .custom
+          [theme];
+
+      return value
+        ? JSON.stringify(value)
+        : fallback;
+    }
+
+    return fallback;
+  };
+
+  const blockerStoreSet = (
+    key,
+    value
+  ) => {
+    if (key === BLOCKER_MODE_KEY) {
+      blockerAppearance.mode =
+        value === 'custom'
+          ? 'custom'
+          : 'default';
+
+      return;
+    }
+
+    const theme =
+      blockerCustomThemeFromKey(key);
+
+    if (!theme) {
+      return;
+    }
+
+    try {
+      const parsed =
+        typeof value === 'string'
+          ? JSON.parse(value)
+          : value;
+
+      blockerAppearance
+        .custom
+        [theme] =
+          parsed &&
+          typeof parsed === 'object'
+            ? parsed
+            : null;
+    } catch (_) {
+      blockerAppearance
+        .custom
+        [theme] =
+          null;
+    }
+  };
+
+  const blockerStoreRemove = (key) => {
+    if (key === BLOCKER_MODE_KEY) {
+      blockerAppearance.mode =
+        'default';
+
+      return;
+    }
+
+    const theme =
+      blockerCustomThemeFromKey(key);
+
+    if (theme) {
+      blockerAppearance
+        .custom
+        [theme] =
+          null;
+    }
+  };
+
+  const blockerEffectiveTheme = () =>
+    document.documentElement
+      .dataset
+      .theme === 'light'
+        ? 'light'
+        : 'dark';
+
+  const blockerRgb = (hex) => {
+    const match =
+      /^#([0-9a-f]{6})$/i.exec(String(hex));
+
+    if (!match) return null;
+
+    const value =
+      Number.parseInt(match[1], 16);
+
+    return {
+      r: (value >> 16) & 255,
+      g: (value >> 8) & 255,
+      b: value & 255
+    };
+  };
+
+  const blockerHexFromRgb = (
+    r,
+    g,
+    b
+  ) => {
+    const byte = (value) =>
+      Math.max(
+        0,
+        Math.min(255, Math.round(value))
+      )
+        .toString(16)
+        .padStart(2, '0');
+
+    return (
+      '#' +
+      byte(r) +
+      byte(g) +
+      byte(b)
+    ).toUpperCase();
+  };
+
+  const blockerMix = (
+    first,
+    second,
+    amount
+  ) => {
+    const a = blockerRgb(first);
+    const b = blockerRgb(second);
+
+    if (!a || !b) return first;
+
+    return blockerHexFromRgb(
+      a.r + ((b.r - a.r) * amount),
+      a.g + ((b.g - a.g) * amount),
+      a.b + ((b.b - a.b) * amount)
+    );
+  };
+
+  const blockerHexToHsl = (hex) => {
+    const rgb = blockerRgb(hex);
+
+    if (!rgb) {
+      return { h: 0, s: 0, l: 0 };
+    }
+
+    let r = rgb.r / 255;
+    let g = rgb.g / 255;
+    let b = rgb.b / 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+
+    let h = 0;
+    let s = 0;
+
+    const l =
+      (max + min) / 2;
+
+    if (max !== min) {
+      const d = max - min;
+
+      s = l > 0.5
+        ? d / (2 - max - min)
+        : d / (max + min);
+
+      if (max === r) {
+        h =
+          ((g - b) / d) +
+          (g < b ? 6 : 0);
+      } else if (max === g) {
+        h =
+          ((b - r) / d) + 2;
+      } else {
+        h =
+          ((r - g) / d) + 4;
+      }
+
+      h /= 6;
+    }
+
+    return {
+      h: Math.round(h * 360),
+      s: Math.round(s * 100),
+      l: Math.round(l * 100)
+    };
+  };
+
+  const blockerHslToHex = (
+    hue,
+    saturation,
+    lightness
+  ) => {
+    let h = Number(hue) / 360;
+    let s = Number(saturation) / 100;
+    let l = Number(lightness) / 100;
+
+    let r;
+    let g;
+    let b;
+
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hueValue = (
+        p,
+        q,
+        t
+      ) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+
+        if (t < (1 / 6)) {
+          return (
+            p +
+            ((q - p) * 6 * t)
+          );
+        }
+
+        if (t < (1 / 2)) {
+          return q;
+        }
+
+        if (t < (2 / 3)) {
+          return (
+            p +
+            ((q - p) *
+              ((2 / 3) - t) *
+              6)
+          );
+        }
+
+        return p;
+      };
+
+      const q = l < 0.5
+        ? l * (1 + s)
+        : l + s - (l * s);
+
+      const p =
+        (2 * l) - q;
+
+      r = hueValue(
+        p,
+        q,
+        h + (1 / 3)
+      );
+
+      g = hueValue(
+        p,
+        q,
+        h
+      );
+
+      b = hueValue(
+        p,
+        q,
+        h - (1 / 3)
+      );
+    }
+
+    return blockerHexFromRgb(
+      r * 255,
+      g * 255,
+      b * 255
+    );
+  };
+
+  const blockerCssHex = (
+    name,
+    fallback
+  ) => {
+    const value =
+      getComputedStyle(
+        document.documentElement
+      )
+        .getPropertyValue(name)
+        .trim();
+
+    return /^#[0-9a-f]{6}$/i.test(value)
+      ? value.toUpperCase()
+      : fallback;
+  };
+
+  const blockerClearVars = () => {
+    [
+      '--bg',
+      '--card',
+      '--card-2',
+      '--text',
+      '--page-text',
+      '--muted',
+      '--secondary-text',
+      '--table-label',
+      '--line',
+      '--primary',
+      '--focus'
+    ].forEach((name) => {
+      document.documentElement
+        .style
+        .removeProperty(name);
+    });
+  };
+
+  const blockerDefaultColors = () => {
+    blockerClearVars();
+
+    const dark =
+      blockerEffectiveTheme() === 'dark';
+
+    return {
+      background:
+        blockerCssHex(
+          '--bg',
+          dark
+            ? '#0B1220'
+            : '#F5F7FB'
+        ),
+
+      foreground:
+        blockerCssHex(
+          '--card',
+          dark
+            ? '#000000'
+            : '#FFFFFF'
+        ),
+
+      text:
+        blockerCssHex(
+          '--text',
+          dark
+            ? '#EDF3FF'
+            : '#182235'
+        ),
+
+      secondary:
+        blockerCssHex(
+          '--secondary-text',
+          dark
+            ? '#D3DEED'
+            : '#56677E'
+        ),
+
+      headings:
+        blockerCssHex(
+          '--table-label',
+          dark
+            ? '#B2D4EA'
+            : '#49647E'
+        ),
+
+      accent:
+        blockerCssHex(
+          '--primary',
+          '#739BFF'
+        )
+    };
+  };
+
+  const blockerBuildVars = (
+    colors
+  ) => {
+    /*
+     * Every color exposed in Advanced is authoritative.
+     * If the user selects a valid #RRGGBB color, use that
+     * exact color without automatic contrast substitution.
+     *
+     * Only internal colors with no direct Advanced control
+     * are derived automatically.
+     */
+    return {
+      '--bg':
+        colors.background,
+
+      '--card':
+        colors.foreground,
+
+      '--card-2':
+        blockerMix(
+          colors.foreground,
+          colors.text,
+          0.07
+        ),
+
+      '--text':
+        colors.text,
+
+      '--page-text':
+        colors.text,
+
+      '--muted':
+        blockerMix(
+          colors.text,
+          colors.foreground,
+          0.25
+        ),
+
+      '--secondary-text':
+        colors.secondary,
+
+      '--table-label':
+        colors.headings,
+
+      '--line':
+        blockerMix(
+          colors.foreground,
+          colors.text,
+          0.18
+        ),
+
+      '--primary':
+        colors.accent,
+
+      '--focus':
+        colors.accent
+    };
+  };
+
+  const blockerApplyVars = (vars) => {
+    blockerClearVars();
+
+    Object.entries(vars || {}).forEach(
+      ([name, value]) => {
+        if (
+          /^--[a-z0-9-]+$/i.test(name) &&
+          /^#[0-9a-f]{6}$/i.test(String(value))
+        ) {
+          document.documentElement
+            .style
+            .setProperty(name, value);
+        }
+      }
+    );
+  };
+
+  const blockerReadThemeCustom = () => {
+    try {
+      return JSON.parse(
+        blockerStoreGet(
+          blockerCustomKey(
+            blockerEffectiveTheme()
+          ),
+          'null'
+        )
+      );
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const blockerFields = {
+    background: {
+      label: 'Background',
+      swatch:
+        document.getElementById(
+          'swatchBackground'
+        ),
+      value:
+        document.getElementById(
+          'valueBackground'
+        )
+    },
+
+    foreground: {
+      label: 'Foreground / Cards',
+      swatch:
+        document.getElementById(
+          'swatchForeground'
+        ),
+      value:
+        document.getElementById(
+          'valueForeground'
+        )
+    },
+
+    text: {
+      label: 'Text',
+      swatch:
+        document.getElementById(
+          'swatchText'
+        ),
+      value:
+        document.getElementById(
+          'valueText'
+        )
+    },
+
+    secondary: {
+      label: 'Secondary Text',
+      swatch:
+        document.getElementById(
+          'swatchSecondary'
+        ),
+      value:
+        document.getElementById(
+          'valueSecondary'
+        )
+    },
+
+    headings: {
+      label: 'Table Headings',
+      swatch:
+        document.getElementById(
+          'swatchHeadings'
+        ),
+      value:
+        document.getElementById(
+          'valueHeadings'
+        )
+    },
+
+    accent: {
+      label: 'Accent',
+      swatch:
+        document.getElementById(
+          'swatchAccent'
+        ),
+      value:
+        document.getElementById(
+          'valueAccent'
+        )
+    }
+  };
+
+  let blockerPendingCustom = null;
+  let blockerEditingField = null;
+
+  const blockerLoadPending = () => {
+    const saved =
+      blockerReadThemeCustom();
+
+    /*
+     * IMPORTANT:
+     * If this theme already has saved custom colors,
+     * use them directly. Do NOT call blockerDefaultColors()
+     * first because that clears the custom CSS variables
+     * that were restored during page startup.
+     */
+    if (saved?.colors) {
+      blockerPendingCustom = {
+        ...saved.colors,
+
+        secondary:
+          saved.colors.secondary ||
+          saved.vars?.['--secondary-text'] ||
+          '#D3DEED',
+
+        headings:
+          saved.colors.headings ||
+          saved.vars?.['--table-label'] ||
+          '#B2D4EA'
+      };
+
+      return blockerPendingCustom;
+    }
+
+    blockerPendingCustom =
+      blockerDefaultColors();
+
+    return blockerPendingCustom;
+  };
+
+  const blockerDrawCustom = () => {
+    const colors =
+      blockerPendingCustom ||
+      blockerLoadPending();
+
+    Object.entries(
+      blockerFields
+    ).forEach(
+      ([name, info]) => {
+        if (info.swatch) {
+          info.swatch.style.background =
+            colors[name];
+        }
+
+        if (info.value) {
+          info.value.textContent =
+            colors[name];
+        }
+      }
+    );
+
+    if (blockerColorMessage) {
+      const name =
+        blockerEffectiveTheme() === 'dark'
+          ? 'Dark'
+          : 'Light';
+
+      blockerColorMessage.textContent =
+        `Editing ${name} theme colors.`;
+    }
+  };
+
+  const blockerSetEditor = (
+    hex
+  ) => {
+    const hsl =
+      blockerHexToHsl(hex);
+
+    blockerHue.value =
+      String(hsl.h);
+
+    blockerSaturation.value =
+      String(hsl.s);
+
+    blockerBrightness.value =
+      String(hsl.l);
+
+    blockerHex.value =
+      hex.toUpperCase();
+
+    blockerColorEditorPreview
+      .style
+      .background =
+        hex;
+  };
+
+  const blockerSliderChanged = () => {
+    const hex =
+      blockerHslToHex(
+        blockerHue.value,
+        blockerSaturation.value,
+        blockerBrightness.value
+      );
+
+    blockerHex.value = hex;
+
+    blockerColorEditorPreview
+      .style
+      .background =
+        hex;
+  };
+
+  const blockerOpenEditor = (
+    field
+  ) => {
+    if (!blockerFields[field]) {
+      return;
+    }
+
+    blockerEditingField = field;
+
+    blockerColorEditorTitle.textContent =
+      `Choose ${blockerFields[field].label}`;
+
+    blockerSetEditor(
+      (
+        blockerPendingCustom ||
+        blockerLoadPending()
+      )[field]
+    );
+
+    blockerColorMainPanel.hidden = true;
+    blockerColorEditor.hidden = false;
+  };
+
+  const blockerCloseEditor = () => {
+    blockerEditingField = null;
+    blockerColorEditor.hidden = true;
+    blockerColorMainPanel.hidden = false;
+  };
+
+  const blockerApplyActiveTheme = () => {
+    blockerClearVars();
+
+    const mode =
+      blockerStoreGet(
+        BLOCKER_MODE_KEY,
+        'default'
+      );
+
+    document.documentElement
+      .dataset
+      .palette =
+        mode === 'custom'
+          ? 'custom'
+          : 'default';
+
+    if (mode === 'custom') {
+      const saved =
+        blockerReadThemeCustom();
+
+      if (saved?.vars) {
+        blockerApplyVars(
+          saved.vars
+        );
+      }
+    }
+
+    blockerPendingCustom = null;
+
+    if (
+      blockerColorPreset?.value === 'custom'
+    ) {
+      blockerLoadPending();
+      blockerDrawCustom();
+    }
+  };
+
+  const blockerMode =
+    blockerStoreGet(
+      BLOCKER_MODE_KEY,
+      'default'
+    );
+
+  blockerColorPreset.value =
+    blockerMode === 'custom'
+      ? 'custom'
+      : 'default';
+
+  blockerCustomFields.hidden =
+    blockerColorPreset.value !== 'custom';
+
+  blockerApplyActiveTheme();
+
+  if (
+    blockerColorPreset.value === 'custom'
+  ) {
+    blockerLoadPending();
+    blockerDrawCustom();
+  }
+
+  blockerColorPreset
+    ?.addEventListener(
+      'change',
+      () => {
+        if (
+          blockerColorPreset.value ===
+          'custom'
+        ) {
+          blockerCustomFields.hidden =
+            false;
+
+          blockerLoadPending();
+          blockerDrawCustom();
+        } else {
+          blockerCustomFields.hidden =
+            true;
+
+          blockerColorMessage.textContent =
+            'Default restores the built-in Light and Dark themes.';
+        }
+      }
+    );
+
+  document
+    .querySelectorAll(
+      '.advanced-color-button'
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        'click',
+        () => {
+          if (blockerQuickPalette) {
+            blockerQuickPalette.hidden =
+              true;
+          }
+
+          blockerOpenEditor(
+            button.dataset.colorTarget
+          );
+        }
+      );
+    });
+
+  [
+    blockerHue,
+    blockerSaturation,
+    blockerBrightness
+  ].forEach((slider) => {
+    slider?.addEventListener(
+      'input',
+      blockerSliderChanged
+    );
   });
+
+  /*
+   * QUICK START COLOR:
+   * Tap/click the large preview block, choose a nearby
+   * starting color, then fine-tune with the sliders.
+   */
+  blockerColorEditorPreview
+    ?.addEventListener(
+      'click',
+      () => {
+        if (!blockerQuickPalette) {
+          return;
+        }
+
+        blockerQuickPalette.hidden =
+          !blockerQuickPalette.hidden;
+      }
+    );
+
+  document
+    .querySelectorAll(
+      '.quick-color-swatch'
+    )
+    .forEach((swatch) => {
+      const color =
+        String(
+          swatch.dataset.quickColor || ''
+        )
+          .trim()
+          .toUpperCase();
+
+      if (
+        /^#[0-9A-F]{6}$/.test(color)
+      ) {
+        swatch.style.background =
+          color;
+      }
+
+      swatch.addEventListener(
+        'click',
+        () => {
+          if (
+            !/^#[0-9A-F]{6}$/.test(color)
+          ) {
+            return;
+          }
+
+          blockerSetEditor(color);
+
+          if (blockerQuickPalette) {
+            blockerQuickPalette.hidden =
+              true;
+          }
+        }
+      );
+    });
+
+  blockerCancelColor
+    ?.addEventListener(
+      'click',
+      () => {
+        if (blockerQuickPalette) {
+          blockerQuickPalette.hidden =
+            true;
+        }
+
+        blockerCloseEditor();
+      }
+    );
+
+  blockerHex
+    ?.addEventListener(
+      'input',
+      () => {
+        const value =
+          String(
+            blockerHex.value || ''
+          )
+            .trim()
+            .toUpperCase();
+
+        if (
+          /^#[0-9A-F]{6}$/.test(value)
+        ) {
+          blockerSetEditor(value);
+        }
+      }
+    );
+
+  blockerUseColor
+    ?.addEventListener(
+      'click',
+      () => {
+        if (blockerQuickPalette) {
+          blockerQuickPalette.hidden =
+            true;
+        }
+
+        if (!blockerEditingField) {
+          return;
+        }
+
+        const value =
+          String(
+            blockerHex.value || ''
+          )
+            .trim()
+            .toUpperCase();
+
+        if (
+          !/^#[0-9A-F]{6}$/.test(value)
+        ) {
+          return;
+        }
+
+        blockerPendingCustom[
+          blockerEditingField
+        ] = value;
+
+        blockerDrawCustom();
+
+        /*
+         * Retract individual color editor
+         * back to the main Colors box.
+         */
+        blockerCloseEditor();
+
+        blockerColorMessage.textContent =
+          'Color selected. Choose another or tap Apply.';
+      }
+    );
+
+  blockerApplyColors
+    ?.addEventListener(
+      'click',
+      () => {
+        if (
+          blockerColorPreset.value ===
+          'default'
+        ) {
+          /*
+           * Default means BOTH themes return
+           * to their built-in colors.
+           */
+          blockerStoreSet(
+            BLOCKER_MODE_KEY,
+            'default'
+          );
+
+          blockerStoreRemove(
+            blockerCustomKey('dark')
+          );
+
+          blockerStoreRemove(
+            blockerCustomKey('light')
+          );
+
+          blockerClearVars();
+
+          document.documentElement
+            .dataset
+            .palette =
+              'default';
+
+          blockerPendingCustom = null;
+        } else {
+          const colors =
+            blockerPendingCustom ||
+            blockerLoadPending();
+
+          const vars =
+            blockerBuildVars(colors);
+
+          /*
+           * Save only the theme currently
+           * being edited: Light or Dark.
+           */
+          blockerStoreSet(
+            blockerCustomKey(
+              blockerEffectiveTheme()
+            ),
+            JSON.stringify({
+              colors,
+              vars
+            })
+          );
+
+          blockerStoreSet(
+            BLOCKER_MODE_KEY,
+            'custom'
+          );
+
+          document.documentElement
+            .dataset
+            .palette =
+              'custom';
+
+          blockerApplyVars(vars);
+        }
+
+        void blockerSaveAppearance()
+          .catch(blockerSaveFailed);
+
+        /*
+         * Apply saves and retracts Colors.
+         */
+        blockerColorMenu.open = false;
+      }
+    );
+
+  blockerResetColors
+    ?.addEventListener(
+      'click',
+      () => {
+        blockerStoreSet(
+          BLOCKER_MODE_KEY,
+          'default'
+        );
+
+        blockerStoreRemove(
+          blockerCustomKey('dark')
+        );
+
+        blockerStoreRemove(
+          blockerCustomKey('light')
+        );
+
+        blockerClearVars();
+
+        document.documentElement
+          .dataset
+          .palette =
+            'default';
+
+        blockerColorPreset.value =
+          'default';
+
+        blockerCustomFields.hidden =
+          true;
+
+        blockerPendingCustom = null;
+
+        void blockerSaveAppearance()
+          .catch(blockerSaveFailed);
+
+        /*
+         * Reset restores built-in themes
+         * and retracts Colors.
+         */
+        blockerColorMenu.open = false;
+      }
+    );
+
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (
+        blockerColorMenu?.open &&
+        event.target instanceof Node &&
+        !blockerColorMenu.contains(
+          event.target
+        )
+      ) {
+        blockerColorMenu.open = false;
+      }
+    }
+  );
 
   const showNotice = (kind, message) => {
     noticeArea.innerHTML = `<div class="notice ${kind}">${escapeHtml(message)}</div>`;
@@ -219,12 +1525,12 @@
 
     let visible = connections;
     if (currentFilter === 'keyed') visible = connections.filter((link) => Boolean(link?.keyed));
-    if (currentFilter === 'connected') visible = connections.filter((link) => !link?.keyed);
+    if (currentFilter === 'connected') visible = connections;
 
     liveHeading.textContent = currentFilter === 'keyed'
       ? 'Keyed Now'
       : currentFilter === 'connected'
-        ? 'Connected / Not Keyed'
+        ? 'Connected'
         : 'All Connections';
 
     liveList.innerHTML = visible.length
@@ -236,12 +1542,11 @@
     const connections = Array.isArray(data.connections) ? data.connections : [];
     const keyed = Array.isArray(data.keyed) ? data.keyed : connections.filter((link) => link.keyed);
     const blocked = Array.isArray(data.blocked) ? data.blocked : [];
-    const notKeyed = Math.max(0, connections.length - keyed.length);
 
     snapshot = { connections, keyed, blocked };
     allCount.textContent = String(connections.length);
     keyedCount.textContent = String(keyed.length);
-    connectedCount.textContent = String(notKeyed);
+    connectedCount.textContent = String(connections.length);
     blockedCount.textContent = String(blocked.length);
 
     renderLists();
@@ -261,7 +1566,6 @@
       statusWarning.classList.add('hidden');
     }
 
-    liveText.textContent = 'Live';
     if (lastUpdate) lastUpdate.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}`;
   };
 
@@ -281,7 +1585,6 @@
       const data = await response.json();
       render(data);
     } catch (_) {
-      liveText.textContent = 'Retrying';
       if (lastUpdate) lastUpdate.textContent = 'Live status retrying…';
     }
   };
@@ -319,7 +1622,6 @@
 
   const doAction = async (action, target, reason = '', displayTarget = '') => {
     busy = true;
-    liveText.textContent = 'Updating';
 
     try {
       const response = await fetch('action.php', {

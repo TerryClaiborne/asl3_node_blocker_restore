@@ -140,3 +140,192 @@ function csrf_valid(string $token): bool
 {
     return isset($_SESSION['csrf']) && hash_equals((string)$_SESSION['csrf'], $token);
 }
+
+const ASL3_BLOCKER_APPEARANCE =
+    ASL3_BLOCKER_APP_DIR . '/run/appearance.json';
+
+function blocker_appearance_default(): array
+{
+    return [
+        'version' => 1,
+        'theme' => 'dark',
+        'mode' => 'default',
+        'custom' => [
+            'dark' => null,
+            'light' => null,
+        ],
+    ];
+}
+
+function blocker_appearance_validate(array $input): ?array
+{
+    $theme = (string)($input['theme'] ?? '');
+    $mode = (string)($input['mode'] ?? '');
+
+    if (!in_array($theme, ['dark', 'light'], true)) {
+        return null;
+    }
+
+    if (!in_array($mode, ['default', 'custom'], true)) {
+        return null;
+    }
+
+    $custom = $input['custom'] ?? null;
+
+    if (!is_array($custom)) {
+        return null;
+    }
+
+    $colorKeys = [
+        'background',
+        'foreground',
+        'text',
+        'secondary',
+        'headings',
+        'accent',
+    ];
+
+    $varKeys = [
+        '--bg',
+        '--card',
+        '--card-2',
+        '--text',
+        '--page-text',
+        '--muted',
+        '--secondary-text',
+        '--table-label',
+        '--line',
+        '--primary',
+        '--focus',
+    ];
+
+    $cleanCustom = [
+        'dark' => null,
+        'light' => null,
+    ];
+
+    foreach (['dark', 'light'] as $which) {
+        $entry = $custom[$which] ?? null;
+
+        if ($entry === null) {
+            continue;
+        }
+
+        if (!is_array($entry)) {
+            return null;
+        }
+
+        $colors = $entry['colors'] ?? null;
+        $vars = $entry['vars'] ?? null;
+
+        if (!is_array($colors) || !is_array($vars)) {
+            return null;
+        }
+
+        $cleanColors = [];
+
+        foreach ($colorKeys as $key) {
+            $value = strtoupper(
+                trim((string)($colors[$key] ?? ''))
+            );
+
+            if (!preg_match('/^#[0-9A-F]{6}$/', $value)) {
+                return null;
+            }
+
+            $cleanColors[$key] = $value;
+        }
+
+        $cleanVars = [];
+
+        foreach ($varKeys as $key) {
+            $value = strtoupper(
+                trim((string)($vars[$key] ?? ''))
+            );
+
+            if (!preg_match('/^#[0-9A-F]{6}$/', $value)) {
+                return null;
+            }
+
+            $cleanVars[$key] = $value;
+        }
+
+        $cleanCustom[$which] = [
+            'colors' => $cleanColors,
+            'vars' => $cleanVars,
+        ];
+    }
+
+    return [
+        'version' => 1,
+        'theme' => $theme,
+        'mode' => $mode,
+        'custom' => $cleanCustom,
+    ];
+}
+
+function blocker_appearance(): array
+{
+    $default = blocker_appearance_default();
+
+    $raw = @file_get_contents(ASL3_BLOCKER_APPEARANCE);
+
+    if ($raw === false || $raw === '') {
+        return $default;
+    }
+
+    if (strlen($raw) > 16384) {
+        return $default;
+    }
+
+    $decoded = json_decode($raw, true);
+
+    if (!is_array($decoded)) {
+        return $default;
+    }
+
+    $validated = blocker_appearance_validate($decoded);
+
+    return $validated ?? $default;
+}
+
+function blocker_appearance_style(array $appearance): string
+{
+    if (($appearance['mode'] ?? 'default') !== 'custom') {
+        return '';
+    }
+
+    $theme = (string)($appearance['theme'] ?? 'dark');
+
+    if (!in_array($theme, ['dark', 'light'], true)) {
+        return '';
+    }
+
+    $entry = $appearance['custom'][$theme] ?? null;
+
+    if (!is_array($entry)) {
+        return '';
+    }
+
+    $vars = $entry['vars'] ?? null;
+
+    if (!is_array($vars)) {
+        return '';
+    }
+
+    $parts = [];
+
+    foreach ($vars as $name => $value) {
+        $name = (string)$name;
+        $value = strtoupper(trim((string)$value));
+
+        if (
+            preg_match('/^--[a-z0-9-]+$/i', $name) &&
+            preg_match('/^#[0-9A-F]{6}$/', $value)
+        ) {
+            $parts[] = $name . ': ' . $value;
+        }
+    }
+
+    return implode('; ', $parts);
+}

@@ -35,6 +35,62 @@ $target = clean_target($rawTarget);
 $disconnectTarget = clean_disconnect_target($rawTarget);
 $reason = clean_reason((string)($_POST['reason'] ?? ''));
 
+if ($action === 'appearance') {
+    $rawAppearance = (string)($_POST['appearance'] ?? '');
+
+    if ($rawAppearance === '' || strlen($rawAppearance) > 16384) {
+        respond(400, [
+            'ok' => false,
+            'message' => 'Appearance payload is invalid.',
+        ]);
+    }
+
+    $decoded = json_decode($rawAppearance, true);
+
+    if (!is_array($decoded)) {
+        respond(400, [
+            'ok' => false,
+            'message' => 'Appearance payload is not valid JSON.',
+        ]);
+    }
+
+    $profile = blocker_appearance_validate($decoded);
+
+    if ($profile === null) {
+        respond(400, [
+            'ok' => false,
+            'message' => 'Appearance settings failed validation.',
+        ]);
+    }
+
+    $canonical = json_encode(
+        $profile,
+        JSON_UNESCAPED_SLASHES
+    );
+
+    if (!is_string($canonical)) {
+        respond(500, [
+            'ok' => false,
+            'message' => 'Appearance settings could not be encoded.',
+        ]);
+    }
+
+    [$ok, $msg] = helper_call(
+        'appearance',
+        base64_encode($canonical)
+    );
+
+    respond($ok ? 200 : 500, [
+        'ok' => $ok,
+        'message' => $ok
+            ? 'Appearance settings were saved.'
+            : ($msg !== ''
+                ? $msg
+                : 'Appearance settings could not be saved.'),
+    ]);
+}
+
+
 if ($node === '') {
     respond(500, ['ok' => false, 'message' => 'Local node is not configured.']);
 }

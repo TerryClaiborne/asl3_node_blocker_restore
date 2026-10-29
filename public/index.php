@@ -9,12 +9,16 @@ $cfg = blocker_config();
 $node = blocker_node();
 $authEnabled = auth_enabled($cfg);
 auth_require_if_enabled($cfg);
+$appearance = blocker_appearance();
+$appearanceStyle = blocker_appearance_style($appearance);
 $version = trim((string)@file_get_contents(dirname(__DIR__) . '/VERSION'));
 $repoUrl = 'https://github.com/TerryClaiborne/asl3_node_blocker_restore';
 $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_blocker_restore/main/VERSION';
 ?>
 <!doctype html>
-<html lang="en" data-theme="auto">
+<html lang="en"
+      data-theme="<?= h((string)$appearance['theme']) ?>"
+      data-palette="<?= h((string)$appearance['mode']) ?>"<?= $appearanceStyle !== '' ? ' style="' . h($appearanceStyle) . '"' : '' ?>>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -23,6 +27,14 @@ $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
+<script type="application/json" id="blockerAppearance"><?= json_encode(
+    $appearance,
+    JSON_UNESCAPED_SLASHES
+    | JSON_HEX_TAG
+    | JSON_HEX_AMP
+    | JSON_HEX_APOS
+    | JSON_HEX_QUOT
+) ?></script>
 <main class="shell" id="blockerApp"
       data-csrf="<?= h(csrf_token()) ?>"
       data-node="<?= h($node) ?>">
@@ -51,13 +63,275 @@ $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/asl3_node_
     </a>
 
     <div class="top-actions">
-      <div class="live-badge" title="Status polls every second">
-        <span class="live-dot" aria-hidden="true"></span>
-        <span id="liveText">Live</span>
-      </div>
       <button class="theme-button" id="themeButton" type="button" aria-label="Change theme" title="Change theme">
         <span class="theme-wide">Light / Dark</span><span class="theme-compact">◐</span>
       </button>
+
+        <details class="color-menu" id="colorMenu">
+          <summary class="theme-button color-button"
+                   title="Color settings"
+                   aria-label="Color settings">
+            <span class="color-wide">Colors</span>
+            <span class="color-compact">🎨</span>
+          </summary>
+
+          <div class="color-popover">
+
+            <div id="colorMainPanel">
+
+              <label class="color-field">
+                <span>Preset</span>
+                <select id="colorPreset">
+                  <option value="default">Default</option>
+                  <option value="custom">Advanced…</option>
+                </select>
+              </label>
+
+              <div class="advanced-fields"
+                   id="customColorFields"
+                   hidden>
+
+                <button class="advanced-color-button"
+                        data-color-target="background"
+                        type="button"
+                        title="Page background behind the cards and panels."
+                        aria-label="Page background behind the cards and panels.">
+                  <span>Background</span>
+                  <span class="color-value">
+                    <span class="color-swatch"
+                          id="swatchBackground"></span>
+                    <code id="valueBackground"></code>
+                  </span>
+                </button>
+
+                <button class="advanced-color-button"
+                        data-color-target="foreground"
+                        type="button"
+                        title="Cards, panels, menus, and table surfaces."
+                        aria-label="Cards, panels, menus, and table surfaces.">
+                  <span>Foreground / Cards</span>
+                  <span class="color-value">
+                    <span class="color-swatch"
+                          id="swatchForeground"></span>
+                    <code id="valueForeground"></code>
+                  </span>
+                </button>
+
+                <button class="advanced-color-button"
+                        data-color-target="text"
+                        type="button"
+                        title="Primary titles, callsigns, values, and normal text."
+                        aria-label="Primary titles, callsigns, values, and normal text.">
+                  <span>Text</span>
+                  <span class="color-value">
+                    <span class="color-swatch"
+                          id="swatchText"></span>
+                    <code id="valueText"></code>
+                  </span>
+                </button>
+
+                <button class="advanced-color-button"
+                        data-color-target="secondary"
+                        type="button"
+                        title="Descriptions, Node Transceiver, elapsed time, and other detail text."
+                        aria-label="Descriptions, Node Transceiver, elapsed time, and other detail text.">
+                  <span>Secondary Text</span>
+                  <span class="color-value">
+                    <span class="color-swatch"
+                          id="swatchSecondary"></span>
+                    <code id="valueSecondary"></code>
+                  </span>
+                </button>
+
+                <button class="advanced-color-button"
+                        data-color-target="headings"
+                        type="button"
+                        title="STATUS, NODE / STATION, MODE, ACTIVITY, and ACTIONS headings."
+                        aria-label="STATUS, NODE / STATION, MODE, ACTIVITY, and ACTIONS headings.">
+                  <span>Table Headings</span>
+                  <span class="color-value">
+                    <span class="color-swatch"
+                          id="swatchHeadings"></span>
+                    <code id="valueHeadings"></code>
+                  </span>
+                </button>
+
+                <button class="advanced-color-button"
+                        data-color-target="accent"
+                        type="button"
+                        title="Buttons, selected items, highlights, and focus accents."
+                        aria-label="Buttons, selected items, highlights, and focus accents.">
+                  <span>Accent</span>
+                  <span class="color-value">
+                    <span class="color-swatch"
+                          id="swatchAccent"></span>
+                    <code id="valueAccent"></code>
+                  </span>
+                </button>
+
+              </div>
+
+              <p class="color-message" id="colorMessage">
+                Default restores the built-in theme. Advanced edits the current Light or Dark theme.
+              </p>
+
+              <div class="color-actions">
+                <button class="button primary small"
+                        id="applyColors"
+                        type="button">
+                  Apply
+                </button>
+
+                <button class="button ghost small"
+                        id="resetColors"
+                        type="button">
+                  Reset
+                </button>
+              </div>
+
+            </div>
+
+            <div id="colorEditor"
+                 class="color-editor"
+                 hidden>
+
+              <div class="color-editor-title"
+                   id="colorEditorTitle">
+                Choose Color
+              </div>
+
+              <button class="color-editor-preview"
+                      id="colorEditorPreview"
+                      type="button"
+                      title="Choose a starting color"
+                      aria-label="Choose a starting color"></button>
+
+              <div class="quick-color-palette"
+                   id="quickColorPalette"
+                   hidden
+                   aria-label="Starting colors">
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#000000"
+                        title="Black"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#FFFFFF"
+                        title="White"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#808080"
+                        title="Gray"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#C62828"
+                        title="Red"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#E67E22"
+                        title="Orange"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#F1C40F"
+                        title="Yellow"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#2E7D32"
+                        title="Green"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#00897B"
+                        title="Teal"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#00ACC1"
+                        title="Cyan"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#1565C0"
+                        title="Blue"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#6A1B9A"
+                        title="Purple"></button>
+
+                <button type="button"
+                        class="quick-color-swatch"
+                        data-quick-color="#C2185B"
+                        title="Magenta"></button>
+
+              </div>
+
+              <div class="quick-color-help">
+                Tap the large color block for a starting color,
+                then fine-tune it below.
+              </div>
+
+              <label class="slider-field">
+                <span>Hue</span>
+                <input id="colorHue"
+                       type="range"
+                       min="0"
+                       max="360"
+                       step="1">
+              </label>
+
+              <label class="slider-field">
+                <span>Saturation</span>
+                <input id="colorSaturation"
+                       type="range"
+                       min="0"
+                       max="100"
+                       step="1">
+              </label>
+
+              <label class="slider-field">
+                <span>Brightness</span>
+                <input id="colorBrightness"
+                       type="range"
+                       min="0"
+                       max="100"
+                       step="1">
+              </label>
+
+              <label class="color-field">
+                <span>Hex</span>
+                <input id="colorHex"
+                       type="text"
+                       maxlength="7"
+                       autocomplete="off"
+                       spellcheck="false">
+              </label>
+
+              <div class="color-actions">
+                <button class="button primary small"
+                        id="useColor"
+                        type="button">
+                  Use Color
+                </button>
+
+                <button class="button ghost small"
+                        id="cancelColor"
+                        type="button">
+                  Cancel
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+        </details>
       <?php if ($authEnabled): ?><a class="button ghost small logout-button" href="logout.php">Logout</a><?php endif; ?>
     </div>
   </header>

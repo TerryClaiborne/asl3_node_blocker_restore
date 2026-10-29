@@ -14,6 +14,9 @@ if (auth_logged_in()) {
     exit;
 }
 
+$appearance = blocker_appearance();
+$appearanceStyle = blocker_appearance_style($appearance);
+
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_valid((string)($_POST['csrf'] ?? ''))) {
@@ -33,7 +36,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!doctype html>
-<html lang="en" data-theme="auto">
+<html lang="en"
+      data-theme="<?= h((string)$appearance['theme']) ?>"
+      data-palette="<?= h((string)$appearance['mode']) ?>"<?= $appearanceStyle !== '' ? ' style="' . h($appearanceStyle) . '"' : '' ?>>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
