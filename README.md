@@ -131,6 +131,15 @@ sudo ./setup_asl3_node_blocker_restore.sh
 
 Existing local settings and the administrator password are preserved during updates.
 
+## Apache Logging After ASL3 Updates
+
+ASL3 appliance updates may replace Apache site configurations and remove shared access-log polling filters. After an ASL3 appliance update, rerun the Blocker installer to restore the shared filters while preserving normal request logging:
+
+```bash
+cd /var/www/html/asl3_blocker
+sudo ./setup_asl3_node_blocker_restore.sh
+```
+
 ## Uninstall
 
 ```bash

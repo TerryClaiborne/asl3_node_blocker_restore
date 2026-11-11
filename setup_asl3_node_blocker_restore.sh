@@ -19,45 +19,84 @@ fail() { echo "[ERROR] $*" >&2; exit 1; }
 info() { echo "[INFO] $*"; }
 ok() { echo "[OK] $*"; }
 
+# Apache-site backups are stored inside this installer's protected setup backup.
+# If setup fails after changing logging rules, the exact site files are restored.
+restore_apache_site_backups() {
+  local site snapshot
+  [[ -n "${backup:-}" && -f "$backup/apache-sites/manifest" ]] || return 0
+  while IFS= read -r site; do
+    [[ "$site" == /etc/apache2/sites-available/*.conf ]] || continue
+    snapshot="$backup/apache-sites/$(basename "$site")"
+    if [[ -f "$snapshot" && ! -L "$snapshot" && -f "$site" && ! -L "$site" ]]; then
+      cp -a "$snapshot" "$site" || echo "[WARN] Could not restore Apache site $site" >&2
+    fi
+  done < "$backup/apache-sites/manifest"
+  if apache2ctl configtest >/dev/null 2>&1; then
+    systemctl reload apache2 || echo "[WARN] Apache reload failed after rollback" >&2
+  else
+    echo "[WARN] Apache configuration invalid after rollback; inspect the site backups." >&2
+  fi
+}
+
+on_install_exit() {
+  local rc=$?
+  trap - EXIT
+  if (( rc != 0 )) && [[ "${apache_site_rollback_armed:-0}" == 1 ]]; then
+    echo "[WARN] Setup failed; restoring saved Apache site files." >&2
+    restore_apache_site_backups
+  fi
+  exit "$rc"
+}
+
 ensure_shared_polling_hook() {
   local stock='CustomLog ${APACHE_LOG_DIR}/access.log combined'
   local shared='CustomLog ${APACHE_LOG_DIR}/access.log combined "expr=!(reqenv('\''dontlog_app_polling'\'') == '\''1'\'' || (reqenv('\''dontlog_app_polling_200'\'') == '\''1'\'' && %{REQUEST_STATUS} == 200))"'
-  local site tmp backup_dir changed=0 warned=0
-  local -a sites=(
-    /etc/apache2/sites-available/000-default.conf
-    /etc/apache2/sites-available/default-ssl.conf
-  )
+  local link site tmp matches changed=0 warned=0
+  local -A seen=()
 
-  for site in "${sites[@]}"; do
-    [[ -f "$site" ]] || continue
+  # Inspect currently enabled sites rather than historical Debian filenames.
+  for link in /etc/apache2/sites-enabled/*.conf; do
+    [[ -e "$link" ]] || continue
+    site="$(readlink -f -- "$link")" || fail "Could not resolve enabled Apache site: $link"
+    case "$site" in
+      /etc/apache2/sites-available/*.conf) ;;
+      *) echo "[WARN] Enabled Apache site outside sites-available; leaving untouched: $link" >&2; warned=1; continue ;;
+    esac
+    [[ -z "${seen[$site]+yes}" ]] || continue
+    seen[$site]=1
+    [[ -f "$site" && ! -L "$site" ]] || fail "Unsafe Apache site file: $site"
 
-    if grep -Fq "$shared" "$site"; then
+    if grep -Fq -- "$shared" "$site"; then
       continue
     fi
 
-    if grep -Fxq "$stock" "$site"; then
-      if [[ -z "${backup_dir:-}" ]]; then
-        backup_dir="/var/backups/asl3-node-blocker-restore/apache-accesslog-$(date -u +%Y%m%dT%H%M%SZ)"
-        mkdir -p "$backup_dir"
-      fi
-      cp -a "$site" "$backup_dir/$(basename "$site")"
+    matches="$(awk -v stock="$stock" '
+      { s=$0; sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s); if (s==stock) n++ }
+      END { print n+0 }
+    ' "$site")"
+    if [[ "$matches" == 1 ]]; then
+      install -d -o root -g root -m 0700 "$backup/apache-sites"
+      cp -a -- "$site" "$backup/apache-sites/$(basename "$site")"
+      printf '%s\n' "$site" >> "$backup/apache-sites/manifest"
 
       tmp="$(mktemp)"
-      awk -v stock="$stock" -v shared="$shared" '
-        $0 == stock { print shared; changed=1; next }
-        { print }
-        END { if (!changed) exit 42 }
-      ' "$site" >"$tmp" || {
-        rm -f "$tmp"
+      if ! awk -v stock="$stock" -v shared="$shared" '
+        { s=$0; sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s)
+          if (s==stock) { match($0, /[^[:space:]]/); print substr($0, 1, RSTART-1) shared; changed++; next }
+          print
+        }
+        END { if (changed!=1) exit 42 }
+      ' "$site" > "$tmp"; then
+        rm -f -- "$tmp"
         fail "Could not install the shared Apache polling-log hook in $site."
-      }
-      cat "$tmp" >"$site"
-      rm -f "$tmp"
+      fi
+      cat "$tmp" > "$site" || { rm -f -- "$tmp"; fail "Could not write Apache site $site"; }
+      rm -f -- "$tmp"
+      info "Shared Apache polling logging installed: $site"
       changed=1
-      continue
-    fi
-
-    if grep -Eq '^[[:space:]]*CustomLog[[:space:]].*access\.log' "$site"; then
+    elif [[ "$matches" != 0 ]]; then
+      fail "Ambiguous stock Apache CustomLog directives in $site; leaving unchanged."
+    elif grep -Eq '^[[:space:]]*CustomLog[[:space:]].*access\.log' "$site"; then
       echo "[WARN] $site has a custom access-log directive; leaving it untouched." >&2
       echo "[WARN] Successful /blocker/status.php polling may remain in access.log for that site." >&2
       warned=1
@@ -65,10 +104,9 @@ ensure_shared_polling_hook() {
   done
 
   if (( changed )); then
-    info "Installed the shared Apache polling-log hook without changing normal request logging."
-    [[ -z "${backup_dir:-}" ]] || info "Apache log backup: $backup_dir"
+    info "Shared Apache polling-log repair applied; rollback included in $backup"
   elif (( ! warned )); then
-    info "Shared Apache polling-log hook already present; existing app logging rules left untouched."
+    info "Shared Apache polling-log repair already present; existing rules unchanged."
   fi
 }
 
@@ -245,13 +283,15 @@ if [[ ! "$node" =~ ^[0-9]{4,7}$ ]]; then
 fi
 [[ "$node" =~ ^[0-9]{4,7}$ ]] || fail "Could not detect one local ASL3 node. Set MYNODE manually in config.ini after install."
 
-backup=""
+# One protected rollback location covers both updates and first-time installs.
+install -d -o root -g root -m 0700 /var/backups/asl3-node-blocker-restore
+backup="$(mktemp -d /var/backups/asl3-node-blocker-restore/setup-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX)"
+chmod 0700 "$backup"
 if [[ -d "$APP_DIR" ]]; then
-  mkdir -p /var/backups/asl3-node-blocker-restore
-  backup="/var/backups/asl3-node-blocker-restore/setup-$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$backup"
-  cp -a "$APP_DIR" "$backup/app" 2>/dev/null || true
+  cp -a "$APP_DIR" "$backup/app" || fail "Could not protect the existing application."
 fi
+apache_site_rollback_armed=1
+trap on_install_exit EXIT
 
 mkdir -p "$APP_DIR"
 if [[ "$SOURCE_DIR" != "$APP_DIR" ]]; then
@@ -355,6 +395,10 @@ grep -q "^NODE[[:space:]]$node$" /tmp/asl3-blocker-helper-check.$$ || {
   fail "Helper verification failed."
 }
 rm -f /tmp/asl3-blocker-helper-check.$$
+
+# Installation and validation succeeded; leave protected backups in place.
+apache_site_rollback_armed=0
+trap - EXIT
 
 lan_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [[ -n "$lan_ip" ]] || lan_ip="<NODE-IP>"
